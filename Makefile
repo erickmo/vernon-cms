@@ -1,10 +1,10 @@
 # Vernon CMS — Root Makefile
 # Delegate semua command ke sub-project yang relevan
 
-.PHONY: infra-up infra-down dev-api dev-web \
-        test-api test-web build-api build-web \
+.PHONY: infra-up infra-down dev-api dev-web dev-admin \
+        test-api test-web test-admin build-api build-web build-admin \
         sqlc mock migrate-up migrate-down \
-        gen-web lint-api lint-web tidy
+        gen-web gen-admin lint-api lint-web lint-admin tidy
 
 # ── Infrastructure ────────────────────────────────────────────────
 infra-up:
@@ -20,11 +20,14 @@ dev-api:
 dev-web:
 	$(MAKE) -C web run
 
-# Jalankan API + Web sekaligus (butuh 2 tab terminal)
+dev-admin:
+	$(MAKE) -C app_admin run
+
 dev:
-	@echo "Jalankan di dua terminal terpisah:"
+	@echo "Jalankan di terminal terpisah:"
 	@echo "  Terminal 1: make dev-api"
-	@echo "  Terminal 2: make dev-web"
+	@echo "  Terminal 2: make dev-web      (CMS dashboard, port 3000)"
+	@echo "  Terminal 3: make dev-admin    (Admin panel, port 3001)"
 
 # ── Testing ───────────────────────────────────────────────────────
 test-api:
@@ -39,7 +42,10 @@ test-api-integration:
 test-web:
 	$(MAKE) -C web test
 
-test: test-api test-web
+test-admin:
+	$(MAKE) -C app_admin test
+
+test: test-api test-web test-admin
 
 # ── Build ─────────────────────────────────────────────────────────
 build-api:
@@ -47,6 +53,9 @@ build-api:
 
 build-web:
 	$(MAKE) -C web build-web
+
+build-admin:
+	$(MAKE) -C app_admin build-web
 
 # ── Code Generation ───────────────────────────────────────────────
 sqlc:
@@ -67,6 +76,12 @@ gen-web:
 gen-web-watch:
 	$(MAKE) -C web gen-watch
 
+gen-admin:
+	$(MAKE) -C app_admin gen
+
+gen-admin-watch:
+	$(MAKE) -C app_admin gen-watch
+
 # ── Code Quality ──────────────────────────────────────────────────
 lint-api:
 	$(MAKE) -C api lint
@@ -74,8 +89,14 @@ lint-api:
 lint-web:
 	$(MAKE) -C web analyze
 
+lint-admin:
+	$(MAKE) -C app_admin analyze
+
 tidy:
 	$(MAKE) -C api tidy
 
 clean-web:
 	$(MAKE) -C web clean
+
+clean-admin:
+	$(MAKE) -C app_admin clean
