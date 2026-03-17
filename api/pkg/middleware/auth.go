@@ -165,6 +165,14 @@ func GetSiteID(ctx context.Context) uuid.UUID {
 	return id
 }
 
+func GetUserID(ctx context.Context) uuid.UUID {
+	claims := GetClaims(ctx)
+	if claims == nil {
+		return uuid.Nil
+	}
+	return claims.UserID
+}
+
 func MaxBodySize(maxBytes int64) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

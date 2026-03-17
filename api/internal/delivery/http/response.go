@@ -18,6 +18,14 @@ func writeJSON(w http.ResponseWriter, status int, data interface{}) {
 	json.NewEncoder(w).Encode(Response{Data: data})
 }
 
+// writeFlatJSON writes data directly without wrapping in {"data":...}.
+// Used for new endpoints where Flutter datasources parse response.data directly.
+func writeFlatJSON(w http.ResponseWriter, status int, data interface{}) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(data)
+}
+
 func writeError(w http.ResponseWriter, status int, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)

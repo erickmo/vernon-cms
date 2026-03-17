@@ -14,17 +14,22 @@ import (
 	"github.com/rs/zerolog/log"
 	"go.uber.org/fx"
 
+	"github.com/jmoiron/sqlx"
+
 	"github.com/erickmo/vernon-cms/infrastructure/cache"
 	"github.com/erickmo/vernon-cms/infrastructure/config"
 	"github.com/erickmo/vernon-cms/infrastructure/database"
 	"github.com/erickmo/vernon-cms/infrastructure/telemetry"
+	createapitoken "github.com/erickmo/vernon-cms/internal/command/create_api_token"
 	createcontent "github.com/erickmo/vernon-cms/internal/command/create_content"
 	createcontentcategory "github.com/erickmo/vernon-cms/internal/command/create_content_category"
 	createpage "github.com/erickmo/vernon-cms/internal/command/create_page"
 	createsite "github.com/erickmo/vernon-cms/internal/command/create_site"
 	createuser "github.com/erickmo/vernon-cms/internal/command/create_user"
+	deleteapitoken "github.com/erickmo/vernon-cms/internal/command/delete_api_token"
 	deletecontent "github.com/erickmo/vernon-cms/internal/command/delete_content"
 	deletecontentcategory "github.com/erickmo/vernon-cms/internal/command/delete_content_category"
+	deletemedia "github.com/erickmo/vernon-cms/internal/command/delete_media"
 	deletepage "github.com/erickmo/vernon-cms/internal/command/delete_page"
 	deletesite "github.com/erickmo/vernon-cms/internal/command/delete_site"
 	deleteuser "github.com/erickmo/vernon-cms/internal/command/delete_user"
@@ -38,28 +43,41 @@ import (
 	"github.com/erickmo/vernon-cms/internal/command/login"
 	publishcontent "github.com/erickmo/vernon-cms/internal/command/publish_content"
 	"github.com/erickmo/vernon-cms/internal/command/register"
+	toggleapitoken "github.com/erickmo/vernon-cms/internal/command/toggle_api_token"
+	updateapitoken "github.com/erickmo/vernon-cms/internal/command/update_api_token"
 	updatecontent "github.com/erickmo/vernon-cms/internal/command/update_content"
 	updatecontentcategory "github.com/erickmo/vernon-cms/internal/command/update_content_category"
 	updatedata "github.com/erickmo/vernon-cms/internal/command/update_data"
 	updatedatarecord "github.com/erickmo/vernon-cms/internal/command/update_data_record"
+	updatemedia "github.com/erickmo/vernon-cms/internal/command/update_media"
 	updatepage "github.com/erickmo/vernon-cms/internal/command/update_page"
+	updatesettings "github.com/erickmo/vernon-cms/internal/command/update_settings"
 	updatesite "github.com/erickmo/vernon-cms/internal/command/update_site"
 	updateuser "github.com/erickmo/vernon-cms/internal/command/update_user"
+	uploadmedia "github.com/erickmo/vernon-cms/internal/command/upload_media"
 	httpdelivery "github.com/erickmo/vernon-cms/internal/delivery/http"
 	"github.com/erickmo/vernon-cms/internal/eventhandler"
+	getdailycontentstats "github.com/erickmo/vernon-cms/internal/query/get_daily_content_stats"
+	getdashboardstats "github.com/erickmo/vernon-cms/internal/query/get_dashboard_stats"
 	getcontent "github.com/erickmo/vernon-cms/internal/query/get_content"
 	getcontentbyslug "github.com/erickmo/vernon-cms/internal/query/get_content_by_slug"
 	getcontentcategory "github.com/erickmo/vernon-cms/internal/query/get_content_category"
 	getdata "github.com/erickmo/vernon-cms/internal/query/get_data"
 	getdatarecord "github.com/erickmo/vernon-cms/internal/query/get_data_record"
+	getmedia "github.com/erickmo/vernon-cms/internal/query/get_media"
 	getpage "github.com/erickmo/vernon-cms/internal/query/get_page"
+	getsettings "github.com/erickmo/vernon-cms/internal/query/get_settings"
 	getsite "github.com/erickmo/vernon-cms/internal/query/get_site"
 	getuser "github.com/erickmo/vernon-cms/internal/query/get_user"
+	listactivitylogs "github.com/erickmo/vernon-cms/internal/query/list_activity_logs"
+	listapitoken "github.com/erickmo/vernon-cms/internal/query/list_api_tokens"
 	listcontent "github.com/erickmo/vernon-cms/internal/query/list_content"
 	listcontentcategory "github.com/erickmo/vernon-cms/internal/query/list_content_category"
 	listdata "github.com/erickmo/vernon-cms/internal/query/list_data"
 	listdatarecord "github.com/erickmo/vernon-cms/internal/query/list_data_record"
 	listdatarecordoptions "github.com/erickmo/vernon-cms/internal/query/list_data_record_options"
+	listmedia "github.com/erickmo/vernon-cms/internal/query/list_media"
+	listmediafolders "github.com/erickmo/vernon-cms/internal/query/list_media_folders"
 	listpage "github.com/erickmo/vernon-cms/internal/query/list_page"
 	listsite "github.com/erickmo/vernon-cms/internal/query/list_site"
 	listsitemember "github.com/erickmo/vernon-cms/internal/query/list_site_member"
@@ -93,6 +111,9 @@ func main() {
 			database.NewUserRepository,
 			database.NewDataRepository,
 			database.NewSiteRepository,
+			database.NewSettingsRepository,
+			database.NewMediaRepository,
+			database.NewAPITokenRepository,
 
 			// Read Repositories (site-scoped wrappers)
 			database.NewPageReadRepository,
@@ -108,12 +129,18 @@ func main() {
 			newAuthHandler,
 			newDataHandler,
 			newSiteHandler,
+			newDashboardHandler,
+			newSettingsHandler,
+			newMediaHandler,
+			newActivityLogHandler,
+			newAPITokenHandler,
 
 			// Login handler (special — needs ReadRepository + SiteReadRepo + JWTService)
 			newLoginHandler,
 
 			// Event Handlers
 			eventhandler.NewCDNCacheHandler,
+			eventhandler.NewActivityLogHandler,
 		),
 		fx.Invoke(
 			registerCommandHandlers,
@@ -182,6 +209,26 @@ func newSiteHandler(cmdBus *commandbus.CommandBus, queryBus *querybus.QueryBus) 
 	return httpdelivery.NewSiteHandler(cmdBus, queryBus)
 }
 
+func newDashboardHandler(queryBus *querybus.QueryBus) *httpdelivery.DashboardHandler {
+	return httpdelivery.NewDashboardHandler(queryBus)
+}
+
+func newSettingsHandler(cmdBus *commandbus.CommandBus, queryBus *querybus.QueryBus) *httpdelivery.SettingsHandler {
+	return httpdelivery.NewSettingsHandler(cmdBus, queryBus)
+}
+
+func newMediaHandler(cmdBus *commandbus.CommandBus, queryBus *querybus.QueryBus) *httpdelivery.MediaHandler {
+	return httpdelivery.NewMediaHandler(cmdBus, queryBus)
+}
+
+func newActivityLogHandler(queryBus *querybus.QueryBus) *httpdelivery.ActivityLogHandler {
+	return httpdelivery.NewActivityLogHandler(queryBus)
+}
+
+func newAPITokenHandler(cmdBus *commandbus.CommandBus, queryBus *querybus.QueryBus) *httpdelivery.APITokenHandler {
+	return httpdelivery.NewAPITokenHandler(cmdBus, queryBus)
+}
+
 func registerCommandHandlers(
 	bus *commandbus.CommandBus,
 	eb eventbus.EventBus,
@@ -191,6 +238,9 @@ func registerCommandHandlers(
 	userRepo *database.UserRepository,
 	dataRepo *database.DataRepository,
 	siteRepo *database.SiteRepository,
+	settingsRepo *database.SettingsRepository,
+	mediaRepo *database.MediaRepository,
+	apiTokenRepo *database.APITokenRepository,
 ) {
 	// Page commands
 	bus.Register("CreatePage", createpage.NewHandler(pageRepo, eb))
@@ -231,10 +281,25 @@ func registerCommandHandlers(
 	bus.Register("AddSiteMember", addsitemember.NewHandler(siteRepo, eb))
 	bus.Register("RemoveSiteMember", removesitemember.NewHandler(siteRepo, eb))
 	bus.Register("UpdateSiteMemberRole", updatesitememberrole.NewHandler(siteRepo, eb))
+
+	// Settings commands
+	bus.Register("UpdateSettings", updatesettings.NewHandler(settingsRepo))
+
+	// Media commands
+	bus.Register("UploadMedia", uploadmedia.NewHandler(mediaRepo))
+	bus.Register("UpdateMedia", updatemedia.NewHandler(mediaRepo))
+	bus.Register("DeleteMedia", deletemedia.NewHandler(mediaRepo))
+
+	// API Token commands
+	bus.Register("CreateAPIToken", createapitoken.NewHandler(apiTokenRepo))
+	bus.Register("UpdateAPIToken", updateapitoken.NewHandler(apiTokenRepo))
+	bus.Register("DeleteAPIToken", deleteapitoken.NewHandler(apiTokenRepo))
+	bus.Register("ToggleAPIToken", toggleapitoken.NewHandler(apiTokenRepo))
 }
 
 func registerQueryHandlers(
 	bus *querybus.QueryBus,
+	db *sqlx.DB,
 	redisClient *redis.Client,
 	metrics *telemetry.Metrics,
 	cfg *config.Config,
@@ -244,6 +309,9 @@ func registerQueryHandlers(
 	userRepo *database.UserRepository,
 	dataReadRepo *database.DataReadRepository,
 	siteRepo *database.SiteRepository,
+	settingsRepo *database.SettingsRepository,
+	mediaRepo *database.MediaRepository,
+	apiTokenRepo *database.APITokenRepository,
 ) {
 	ttl := time.Duration(cfg.Redis.TTLSeconds) * time.Second
 
@@ -268,9 +336,31 @@ func registerQueryHandlers(
 	bus.Register("GetSite", getsite.NewHandler(siteRepo))
 	bus.Register("ListSite", listsite.NewHandler(siteRepo))
 	bus.Register("ListSiteMember", listsitemember.NewHandler(siteRepo))
+
+	// Dashboard queries (use sqlx.DB directly)
+	bus.Register("GetDashboardStats", getdashboardstats.NewHandler(db))
+	bus.Register("GetDailyContentStats", getdailycontentstats.NewHandler(db))
+
+	// Settings queries
+	bus.Register("GetSettings", getsettings.NewHandler(settingsRepo))
+
+	// Media queries
+	bus.Register("ListMedia", listmedia.NewHandler(mediaRepo))
+	bus.Register("GetMedia", getmedia.NewHandler(mediaRepo))
+	bus.Register("ListMediaFolders", listmediafolders.NewHandler(mediaRepo))
+
+	// Activity log queries (use sqlx.DB directly)
+	bus.Register("ListActivityLogs", listactivitylogs.NewHandler(db))
+
+	// API Token queries
+	bus.Register("ListAPITokens", listapitoken.NewHandler(apiTokenRepo))
 }
 
-func registerEventHandlers(eb eventbus.EventBus, cdnHandler *eventhandler.CDNCacheHandler) {
+func registerEventHandlers(
+	eb eventbus.EventBus,
+	cdnHandler *eventhandler.CDNCacheHandler,
+	activityHandler *eventhandler.ActivityLogHandler,
+) {
 	eb.Subscribe("page.created", cdnHandler.HandlePageEvent)
 	eb.Subscribe("page.updated", cdnHandler.HandlePageEvent)
 	eb.Subscribe("page.deleted", cdnHandler.HandlePageEvent)
@@ -292,6 +382,15 @@ func registerEventHandlers(eb eventbus.EventBus, cdnHandler *eventhandler.CDNCac
 	eb.Subscribe("data_record.created", cdnHandler.HandleContentEvent)
 	eb.Subscribe("data_record.updated", cdnHandler.HandleContentEvent)
 	eb.Subscribe("data_record.deleted", cdnHandler.HandleContentEvent)
+
+	// Activity log events
+	eb.Subscribe("content.created", activityHandler.HandleContentEvent)
+	eb.Subscribe("content.updated", activityHandler.HandleContentEvent)
+	eb.Subscribe("content.published", activityHandler.HandleContentEvent)
+	eb.Subscribe("content.deleted", activityHandler.HandleContentEvent)
+	eb.Subscribe("page.created", activityHandler.HandlePageEvent)
+	eb.Subscribe("page.updated", activityHandler.HandlePageEvent)
+	eb.Subscribe("page.deleted", activityHandler.HandlePageEvent)
 }
 
 func corsWithOrigins(allowedOrigins string) func(http.Handler) http.Handler {
@@ -333,6 +432,11 @@ func startServer(
 	userHandler *httpdelivery.UserHandler,
 	dataHandler *httpdelivery.DataHandler,
 	siteHandler *httpdelivery.SiteHandler,
+	dashboardHandler *httpdelivery.DashboardHandler,
+	settingsHandler *httpdelivery.SettingsHandler,
+	mediaHandler *httpdelivery.MediaHandler,
+	activityLogHandler *httpdelivery.ActivityLogHandler,
+	apiTokenHandler *httpdelivery.APITokenHandler,
 ) {
 	r := chi.NewRouter()
 
@@ -411,8 +515,8 @@ func startServer(
 			})
 		})
 
-		// Data
-		r.Route("/api/v1/data", func(r chi.Router) {
+		// Domain Builder (was /api/v1/data, renamed to /api/v1/domains)
+		r.Route("/api/v1/domains", func(r chi.Router) {
 			r.Get("/", dataHandler.ListDataTypes)
 			r.Get("/{id}", dataHandler.GetDataType)
 			r.Group(func(r chi.Router) {
@@ -422,7 +526,7 @@ func startServer(
 				r.Delete("/{id}", dataHandler.DeleteDataType)
 			})
 
-			// Data Records
+			// Domain Records
 			r.Route("/{data_slug}/records", func(r chi.Router) {
 				r.Get("/", dataHandler.ListRecords)
 				r.Get("/options", dataHandler.ListRecordOptions)
@@ -437,6 +541,40 @@ func startServer(
 					r.Delete("/{id}", dataHandler.DeleteRecord)
 				})
 			})
+		})
+
+		// Dashboard
+		dashboardHandler.RegisterRoutes(r)
+
+		// Settings
+		r.Group(func(r chi.Router) {
+			r.Use(middleware.RequireSiteRole("admin"))
+			settingsHandler.RegisterRoutes(r)
+		})
+
+		// Media
+		r.Group(func(r chi.Router) {
+			r.Get("/api/v1/media", mediaHandler.List)
+			r.Get("/api/v1/media/folders", mediaHandler.ListFolders)
+			r.Get("/api/v1/media/{id}", mediaHandler.GetByID)
+			r.Group(func(r chi.Router) {
+				r.Use(middleware.RequireSiteRole("admin", "editor"))
+				r.Post("/api/v1/media/upload", mediaHandler.Upload)
+				r.Put("/api/v1/media/{id}", mediaHandler.Update)
+			})
+			r.Group(func(r chi.Router) {
+				r.Use(middleware.RequireSiteRole("admin"))
+				r.Delete("/api/v1/media/{id}", mediaHandler.Delete)
+			})
+		})
+
+		// Activity Logs (read-only)
+		activityLogHandler.RegisterRoutes(r)
+
+		// API Tokens
+		r.Group(func(r chi.Router) {
+			r.Use(middleware.RequireSiteRole("admin"))
+			apiTokenHandler.RegisterRoutes(r)
 		})
 	})
 

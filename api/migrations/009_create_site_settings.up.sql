@@ -1,0 +1,21 @@
+CREATE TABLE IF NOT EXISTS site_settings (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    site_id UUID UNIQUE NOT NULL REFERENCES sites(id) ON DELETE CASCADE,
+    site_name VARCHAR(500) NOT NULL DEFAULT '',
+    site_description TEXT,
+    site_url TEXT,
+    logo_url TEXT,
+    favicon_url TEXT,
+    default_meta_title TEXT,
+    default_meta_description TEXT,
+    default_og_image TEXT,
+    primary_color VARCHAR(20),
+    secondary_color VARCHAR(20),
+    footer_text TEXT,
+    google_analytics_id VARCHAR(100),
+    custom_head_code TEXT,
+    custom_body_code TEXT,
+    maintenance_mode BOOLEAN NOT NULL DEFAULT FALSE,
+    maintenance_message TEXT,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
