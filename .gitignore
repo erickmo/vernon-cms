@@ -1,0 +1,37 @@
+# ── API (Go) ──────────────────────────────────────────────────────
+api/bin/
+api/tmp/
+api/.env
+api/*.exe
+api/*.test
+api/*.out
+api/vendor/
+
+# ── Web (Flutter) ─────────────────────────────────────────────────
+web/.dart_tool/
+web/.flutter-plugins
+web/.flutter-plugins-dependencies
+web/.packages
+web/.pub-cache/
+web/.pub/
+web/build/
+
+# Generated files (Flutter)
+web/**/*.g.dart
+web/**/*.freezed.dart
+web/**/*.config.dart
+web/**/injection.config.dart
+
+# Coverage
+web/coverage/
+
+# ── Common ────────────────────────────────────────────────────────
+.env
+*.env.local
+.idea/
+.vscode/
+*.swp
+*.swo
+*.iml
+.DS_Store
+Thumbs.db

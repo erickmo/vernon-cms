@@ -1,0 +1,11 @@
+bin/
+tmp/
+.env
+*.exe
+*.test
+*.out
+vendor/
+.idea/
+.vscode/
+*.swp
+*.swo
