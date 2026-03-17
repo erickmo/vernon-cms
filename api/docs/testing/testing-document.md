@@ -1,9 +1,9 @@
 # Testing Document: Vernon CMS
 
-**Versi:** 1.2.0
+**Versi:** 1.3.0
 **Tanggal:** 2026-03-17
-**Total Test Cases:** 334
-**Status:** All Passed
+**Total Test Cases:** 334 (core) — new features pending
+**Status:** Core All Passed | New features (Settings/Media/Tokens/Dashboard) belum ditest
 
 ---
 
@@ -58,341 +58,239 @@ tests/
 | UpdateName valid | Set new name | Name updated, UpdatedAt changed |
 | UpdateName empty | Set name="" | Error, name unchanged |
 | UpdateSlug valid | Set new slug | Slug updated |
-| UpdateSlug empty | Set slug="" | Error, slug unchanged |
-| UpdateVariables | Set complex JSON | Variables updated |
-| SetActive false/true | Toggle active | IsActive toggled |
-| Unique UUIDs | Create 2 pages | Different UUIDs |
-
-#### ContentCategory Entity (`domain_content_category_test.go`)
-| Test Case | Scenario | Expected |
-|---|---|---|
-| NewContentCategory valid | Create with name, slug | Entity created |
-| Empty name/slug/both | Invalid input | Error returned |
-| UpdateName/UpdateSlug | Valid and empty input | Success or error |
+| UpdateSlug empty | Set slug="" | Error |
+| SetVariables valid | Set JSON variables | Variables updated |
+| SetVariables nil | nil variables | Defaults to `{}` |
+| Deactivate | Call Deactivate() | IsActive=false |
+| Activate | Call Activate() | IsActive=true |
 
 #### Content Entity (`domain_content_test.go`)
 | Test Case | Scenario | Expected |
 |---|---|---|
-| NewContent valid | Create with all fields | Status=draft, PublishedAt=nil, Metadata={} |
-| NewContent custom metadata | With JSON metadata | Metadata set correctly |
-| NewContent empty body/excerpt | Body="" & Excerpt="" | Allowed (no error) |
-| Empty title/slug | Invalid input | Error returned |
-| **Publish draft→published** | Publish() on draft | Status=published, PublishedAt set |
-| **Double publish (BLOCKED)** | Publish() on published | Error: "already published" |
-| Published→archived | Archive() on published | Status=archived |
-| Archived→draft | ToDraft() on archived | Status=draft, PublishedAt=nil |
-| Draft→archived | Archive() on draft | Status=archived |
-| Archived→published | Publish() on archived | Status=published |
-| UpdateTitle/Slug valid/empty | Valid and empty | Success or error |
-| UpdateBody | Set body + excerpt | Both updated |
-| UpdateMetadata | Set JSON | Metadata updated |
-| Status constants | draft/published/archived | Match string values |
+| NewContent valid | All required fields | Content created, status=draft |
+| NewContent empty title | Title="" | Error |
+| NewContent empty slug | Slug="" | Error |
+| UpdateTitle valid | New title | Updated |
+| UpdateTitle empty | "" | Error |
+| UpdateSlug valid | New slug | Updated |
+| UpdateSlug empty | "" | Error |
+| UpdateBody | New body | Updated, UpdatedAt changed |
+| Publish from draft | status=draft | status=published, published_at set |
+| Publish from published | status=published | Error: already published |
+| Publish from archived | status=archived | status=published |
+| Archive from draft | status=draft | status=archived |
+| Archive from published | status=published | status=archived |
+| ToDraft from archived | status=archived | status=draft, published_at nil |
+| ToDraft from draft | status=draft | Error or no-op |
+| UpdateMetadata | Valid JSONB | Updated |
+| UpdateMetadata nil | nil | Defaults to `{}` |
+
+#### ContentCategory Entity (`domain_content_category_test.go`)
+| Test Case | Scenario | Expected |
+|---|---|---|
+| NewContentCategory valid | name + slug | Created |
+| NewContentCategory empty name | "" | Error |
+| NewContentCategory empty slug | "" | Error |
+| Update valid | New name + slug | Updated |
+| Update empty fields | "" | Error |
 
 #### User Entity (`domain_user_test.go`)
 | Test Case | Scenario | Expected |
 |---|---|---|
-| NewUser valid | Create with all fields | IsActive=true |
-| Empty role defaults to viewer | Role="" | Role=viewer |
-| All role types | admin/editor/viewer | All accepted |
-| Empty email/password/name/all | Invalid input | Error returned |
-| UpdateName/Email valid/empty | Valid and empty | Success or error |
-| UpdatePassword | Set new hash | PasswordHash updated |
-| UpdateRole transitions | viewer→editor→admin→viewer | All transitions work |
-| SetActive toggle | true↔false | Toggled correctly |
-| Password not in JSON | json:"-" tag | Internal access works, not in JSON |
+| NewUser valid | All fields | Created, IsActive=true |
+| NewUser empty email | "" | Error |
+| NewUser empty password | "" | Error |
+| NewUser empty name | "" | Error |
+| NewUser invalid role | "superadmin" | Error |
+| UpdateName valid | New name | Updated |
+| UpdateName empty | "" | Error |
+| UpdateRole valid | "admin" | Updated |
+| UpdateRole invalid | "owner" | Error |
+| UpdateEmail valid | Valid email | Updated |
+| UpdateEmail empty | "" | Error |
+| Activate/Deactivate | Toggle | IsActive toggled |
+| SetPasswordHash | New hash | Updated |
 
 #### Domain Events (`domain_events_test.go`)
 | Test Case | Scenario | Expected |
 |---|---|---|
-| All 13 events | EventName() + OccurredAt() | Correct event name string + timestamp |
-
-#### Domain Builder Entity (`domain_domain_builder_test.go`)
-| Test Case | Scenario | Expected |
-|---|---|---|
-| NewDomain valid input | name, slug, plural_name, sidebar_section | Domain created, Fields=[], timestamps set |
-| NewDomain with description & icon | Optional pointer fields | Description & icon set |
-| NewDomain empty sidebar_section | sidebar_section="" | Defaults to "content" |
-| NewDomain empty name | name="" | Error: "name is required" |
-| NewDomain empty slug | slug="" | Error: "slug is required" |
-| NewDomain empty plural_name | plural_name="" | Error: "plural_name is required" |
-| NewDomainField valid text field | All params valid | Field created with correct ID + DomainID |
-| NewDomainField all 12 valid types | text/textarea/number/email/url/phone/date/select/checkbox/image_url/rich_text/relation | All accepted |
-| NewDomainField invalid type | FieldType="unknown" | Error: "invalid field type" |
-| NewDomainField empty name | name="" | Error |
-| NewDomainField empty label | label="" | Error |
-| FieldType constants | ValidFieldTypes map check | All 12 types present |
-| Domain UUID uniqueness | Create 2 domains | Different UUIDs |
+| PageCreated interface | Check EventName + OccurredAt | Correct values |
+| PageUpdated interface | Check EventName + OccurredAt | Correct values |
+| PageDeleted interface | Check EventName + OccurredAt | Correct values |
+| ContentCreated interface | Check | Correct values |
+| ContentUpdated interface | Check | Correct values |
+| ContentPublished interface | Check | Correct values |
+| ContentDeleted interface | Check | Correct values |
+| ContentCategoryCreated interface | Check | Correct values |
+| ContentCategoryUpdated interface | Check | Correct values |
+| ContentCategoryDeleted interface | Check | Correct values |
+| UserCreated interface | Check | Correct values |
+| UserUpdated interface | Check | Correct values |
+| UserDeleted interface | Check | Correct values |
 
 ---
 
-### 2.2 Command Handler Layer (6 files, ~58 test cases)
+### 2.2 Command Layer (~130 test cases)
 
 #### Page Commands (`command_page_test.go`)
 | Test Case | Scenario | Expected |
 |---|---|---|
-| CreatePage success | Valid input | Saved + page.created event |
-| CreatePage empty name | Domain validation | Error, nothing saved, no event |
-| CreatePage repo error | DB connection lost | Error propagated, no event |
-| CreatePage duplicate slug | Same slug twice | Error: duplicate |
-| CreatePage event bus failure | Event bus unavailable | Page saved but error returned |
-| UpdatePage success | Existing page | Updated + page.updated event |
-| UpdatePage not found | Non-existent ID | Error: not found, no event |
-| UpdatePage empty name | Domain validation | Error, no event |
-| UpdatePage repo error | Disk full | Error propagated |
-| DeletePage success | Existing page | Deleted + page.deleted event |
-| DeletePage not found | Non-existent ID | Error: not found |
-| DeletePage double delete | Same ID twice | Second delete: not found |
+| CreatePage success | Valid input | Page saved, event published |
+| CreatePage duplicate slug | Slug exists | Error returned, no event |
+| CreatePage empty name | name="" | ValidationError |
+| UpdatePage success | Valid update | Page updated, event published |
+| UpdatePage not found | Wrong ID | Error, no event |
+| UpdatePage empty name | name="" | ValidationError |
+| DeletePage success | Valid ID | Page deleted, event published |
+| DeletePage not found | Wrong ID | Error, no event |
+
+#### Content Category Commands (`command_content_category_test.go`)
+*(Same pattern as Page — 8 test cases)*
 
 #### Content Commands (`command_content_test.go`)
 | Test Case | Scenario | Expected |
 |---|---|---|
-| CreateContent success | Valid input | Saved + content.created event |
-| CreateContent empty title | Validation | Error |
-| CreateContent duplicate slug | Same slug twice | Error: duplicate |
-| CreateContent repo error | Connection refused | Error |
-| UpdateContent success | Existing | Updated + content.updated event |
-| UpdateContent not found | Non-existent | Error: not found |
-| UpdateContent empty title | Validation | Error |
-| **PublishContent success** | Draft content | Published + content.published event |
-| **PublishContent double publish** | Already published | Error: already published, no event |
-| PublishContent not found | Non-existent | Error: not found |
-| DeleteContent success/not found | Existing/non-existent | Deleted or error |
+| CreateContent success | Valid input | Saved, event published |
+| CreateContent empty title | title="" | ValidationError |
+| CreateContent empty slug | slug="" | ValidationError |
+| UpdateContent success | Valid | Updated, event published |
+| UpdateContent not found | Wrong ID | Error |
+| DeleteContent success | Valid | Deleted, event published |
+| DeleteContent not found | Wrong ID | Error |
+| PublishContent success | draft | Published, event published |
+| PublishContent already published | published | Error, no event |
+| PublishContent archived | archived | Published |
 
-#### ContentCategory & User Commands
-Sama pattern: success, validation, duplicate, repo error, not found.
+#### User Commands (`command_user_test.go`)
+*(8 test cases)*
 
-#### Domain Builder Commands (`command_domain_test.go`)
+#### Register/Login Commands (`command_auth_test.go`)
 | Test Case | Scenario | Expected |
 |---|---|---|
-| CreateDomain without fields | Valid name/slug/plural | Saved + domain.created event |
-| CreateDomain with 2 fields | text + number fields | Domain + fields saved, event published |
-| CreateDomain with description/icon | Optional pointer fields | Saved with description and icon |
-| CreateDomain empty name | name="" | Error from domain factory, no event |
-| CreateDomain empty slug | slug="" | Error from domain factory, no event |
-| CreateDomain duplicate slug | Same slug twice | Error: duplicate slug |
-| CreateDomain invalid field type | FieldType="unsupported" | Error: invalid field type |
-| CreateDomain repo error | SaveDomainErr set | Error propagated, no event |
-| UpdateDomain metadata | Change name/slug | Updated + domain.updated event |
-| UpdateDomain replace fields | 1 field → 2 fields | Fields replaced (ReplaceFields called) |
-| UpdateDomain not found | Non-existent ID | Error: not found |
-| DeleteDomain success | Existing domain | Deleted + domain.deleted event |
-| DeleteDomain not found | Non-existent ID | Error: not found |
-| CreateDomainRecord success | Valid domain_slug + data | Record saved + domain_record.created |
-| CreateDomainRecord domain not found | Non-existent slug | Error: domain not found |
-| CreateDomainRecord repo error | SaveRecordErr set | Error propagated, no event |
-| UpdateDomainRecord success | Existing record | Updated + domain_record.updated event |
-| UpdateDomainRecord not found | Non-existent record ID | Error: not found |
-| DeleteDomainRecord success | Existing record | Deleted + domain_record.deleted event |
-| DeleteDomainRecord not found | Non-existent record ID | Error: not found |
+| Register success | Valid input | User saved, event published |
+| Register duplicate email | Email exists | Error, no event |
+| Register empty email | "" | ValidationError |
+| Register short password | < 8 chars | ValidationError |
+| Login success | Correct credentials | (handled by login.Handler directly) |
 
 ---
 
-### 2.3 HTTP Handler Layer (6 files, ~84 test cases)
+### 2.3 HTTP Handler Layer (~60 test cases)
 
-#### Page HTTP Handler (`http_page_handler_test.go`)
-| Test Case | Status Code | Scenario |
-|---|---|---|
-| POST valid | 201 | Created successfully |
-| POST missing name | 400 | Validator: required field |
-| POST missing slug | 400 | Validator: required field |
-| POST malformed JSON | 400 | JSON decode error |
-| POST empty body | 400 | Empty body |
-| GET invalid UUID | 400 | UUID parse error |
-| GET trailing slash | 301/200/404 | Router behavior |
-| **GET default pagination** | 200 | page=1, limit=20 |
-| **GET custom pagination** | 200 | page=2, limit=10 |
-| **GET negative page** | 200 | Corrected to page=1 |
-| **GET zero limit** | 200 | Corrected to limit=20 |
-| **GET non-numeric params** | 200 | Defaults applied |
-| **GET page beyond total** | 200 | Empty items, correct total |
-| PUT invalid UUID | 400 | UUID parse error |
-| PUT malformed JSON | 400 | JSON decode error |
-| PUT missing required fields | 400 | Validator |
-| DELETE invalid UUID | 400 | UUID parse error |
-| DELETE non-existent | 500 | Not found error |
-| PATCH (not supported) | 405 | Method not allowed |
-| Full CRUD flow | 201→200→200→200 | Create→List→Delete→Verify empty |
-| Success response format | 200/201 | Has `data` key, no `error` key |
-| Error response format | 400 | Has `error` key |
+#### Page Handler (`http_page_handler_test.go`)
+| Test Case | Method | Input | Expected HTTP Code |
+|---|---|---|---|
+| List pages | GET /pages | - | 200 |
+| Get page valid | GET /pages/:id | Valid UUID | 200 |
+| Get page invalid UUID | GET /pages/:id | "abc" | 400 |
+| Get page not found | GET /pages/:id | Unknown UUID | 404 |
+| Create page success | POST /pages | Valid JSON | 201 |
+| Create page invalid body | POST /pages | Malformed JSON | 400 |
+| Create page missing fields | POST /pages | {} | 400 |
+| Update page success | PUT /pages/:id | Valid JSON | 200 |
+| Update page invalid UUID | PUT /pages/:id | "abc" | 400 |
+| Delete page success | DELETE /pages/:id | Valid UUID | 200 |
+| Delete page not found | DELETE /pages/:id | Unknown UUID | 500 |
 
-#### Content HTTP Handler (`http_content_handler_test.go`)
-| Test Case | Status Code | Scenario |
-|---|---|---|
-| POST valid | 201 | Created |
-| POST missing title | 400 | Validator |
-| POST missing page_id (FK) | 400 | Missing FK reference |
-| POST malformed JSON | 400 | Decode error |
-| GET invalid UUID | 400 | Parse error |
-| PUT publish invalid UUID | 400 | Parse error |
-| PUT publish non-existent | 500 | Not found |
-| GET slug not found | 404/500 | Slug doesn't exist |
-| Full CRUD + Publish | 201→200→200→200→200 | Create→List→Update→Publish→Delete |
-
-#### ContentCategory & User HTTP Handlers
-Sama pattern: valid/invalid input, malformed JSON, invalid UUID, full CRUD flow.
-
-#### Domain Builder HTTP Handler (`http_domain_handler_test.go`)
-| Test Case | Status Code | Scenario |
-|---|---|---|
-| POST domain valid (no fields) | 201 | name/slug/plural_name valid |
-| POST domain valid (with fields) | 201 | text + number fields |
-| POST domain missing required fields | 400 | Validator: slug/plural_name missing |
-| POST domain malformed JSON | 400 | JSON decode error |
-| GET domains empty | 200 | Returns total=0 |
-| GET domains after create | 200 | total ≥ 1 |
-| GET domain invalid UUID | 400 | UUID parse error |
-| GET domain not found | 404 | Non-existent UUID |
-| DELETE domain invalid UUID | 400 | UUID parse error |
-| Full Domain CRUD | 201→200→200→200→200 | Create→List→GetByID→Update→Delete→Verify |
-| POST record valid | 201 | data field created |
-| POST record malformed JSON | 400 | Decode error |
-| POST record domain not found | 500 | Non-existent domain_slug |
-| GET records list | 200 | Returns items + total |
-| GET records with search | 200 | Search filter applied |
-| GET record invalid UUID | 400 | UUID parse error |
-| GET record not found | 404 | Non-existent record ID |
-| Full Record CRUD | 201→200→200→200→200 | Create→List→GetByID→Update→Delete→Verify |
-| GET record options | 200 | Returns 1 option for 1 record |
+*(Sama untuk ContentCategory, Content, User — ~44 test cases total)*
 
 ---
 
-### 2.4 Infrastructure Layer (4 files, ~25 test cases)
+### 2.4 Infrastructure Layer (~48 test cases)
 
 #### CommandBus (`commandbus_test.go`)
 | Test Case | Scenario | Expected |
 |---|---|---|
-| Dispatch registered | Valid handler | Handler invoked |
-| Dispatch unregistered | No handler | Error: no handler registered |
-| Handler error | Handler returns error | Error propagated |
-| Before hook blocks | Hook returns error | Handler NOT invoked |
-| After hook captures | Handler error | Hook receives error |
+| Register + Dispatch success | Valid command | Handler called, no error |
+| Dispatch unregistered | Unknown command name | Error: "handler not found" |
+| Dispatch with logging hook | Valid | Logged, handler called |
+| Dispatch with validation hook — pass | Struct valid | Handler called |
+| Dispatch with validation hook — fail | Struct invalid | Error before handler |
+| Multiple hooks order | 2 hooks | Both executed in order |
+| CommandBus metrics | Valid dispatch | HTTPRequestCount incremented |
+| Nil handler panic recovery | - | Error, no panic |
 
 #### QueryBus (`querybus_test.go`)
-| Test Case | Scenario | Expected |
-|---|---|---|
-| Dispatch with result | Valid handler | Result returned |
-| No handler registered | Unknown query | Error |
-| Handler error | Handler returns error | Error, nil result |
-| Nil result without error | Handler returns nil, nil | Valid (no error) |
+*(~8 test cases)*
 
 #### EventBus (`eventbus_test.go`)
 | Test Case | Scenario | Expected |
 |---|---|---|
-| Publish triggers subscriber | 1 subscriber | Subscriber invoked |
-| Multiple subscribers | 3 subscribers | All 3 invoked |
-| No subscriber | Orphan event | No error |
-| Subscriber error | First sub errors | Second sub still invoked |
-| Event name isolation | Publish event.a | Only event.a subscriber triggered |
+| Subscribe + Publish | Single subscriber | Handler called once |
+| Multiple subscribers | 2 subs, 1 event | Both called |
+| No subscribers | Publish with no sub | No error |
+| Subscriber error | Handler returns error | Error propagated |
+| Multiple events | Publish 2 events | Both handled independently |
 
-#### Middleware (`middleware_test.go`)
+#### JWT (`auth_jwt_test.go`)
 | Test Case | Scenario | Expected |
 |---|---|---|
-| **Panic recovery** | Handler panics | 500 returned, no crash |
-| Normal request | No panic | Passes through |
-| CORS headers | GET request | All CORS headers set |
-| **OPTIONS preflight** | OPTIONS request | 204 No Content |
-| Logging | GET /test | Request processed with logger |
+| GenerateTokenPair success | Valid user/role | Tokens returned, ExpiresAt set |
+| GenerateTokenPair claims | Check claims | UserID, Email, Role, SiteID correct |
+| ValidateToken valid | Valid access token | Claims returned |
+| ValidateToken expired | Expired token | Error |
+| ValidateToken wrong secret | Wrong key | Error |
+| ValidateToken malformed | "garbage" | Error |
+| ValidateToken refresh token | Refresh as access | Still valid (same type) |
+| ExpiresAt value | Near-future | Within expected window |
+
+#### Auth Middleware (`auth_middleware_test.go`)
+*(~10 test cases)*
+
+#### Custom Error Types (`apperror_test.go`)
+*(~10 test cases)*
 
 ---
 
-## 3. Robustness Coverage Matrix
+### 2.5 New Features — Test Gap ⚠️
 
-| Vulnerability | Covered By | Test Files |
+Fitur berikut belum memiliki unit test:
+
+| Feature | Mock Needed | Priority |
 |---|---|---|
-| Empty/null required fields | Domain entity validation | domain_*_test.go |
-| Malformed JSON body | HTTP handler JSON decode | http_*_handler_test.go |
-| Empty request body | HTTP handler decode | http_page_handler_test.go |
-| Invalid UUID in URL path | HTTP handler UUID parse | http_*_handler_test.go |
-| Invalid email format | go-playground/validator | http_user_handler_test.go |
-| Invalid enum values (role) | validator oneof | http_user_handler_test.go |
-| Duplicate unique constraints (slug) | Mock repo unique check | command_page_test.go, command_content_test.go |
-| Duplicate unique constraints (email) | Mock repo unique check | command_user_test.go |
-| Not found on update/delete | Repository FindByID | command_*_test.go |
-| Double delete | Delete same ID twice | command_page_test.go |
-| **Double publish** | Content state guard | domain_content_test.go, command_content_test.go |
-| **State transition violations** | Domain entity rules | domain_content_test.go |
-| Database connection error | Mock SaveErr/UpdateErr | command_*_test.go |
-| Event bus failure | Mock ShouldFail | command_page_test.go |
-| Duplicate domain slug | Mock slug uniqueness | command_domain_test.go |
-| Invalid DomainField type | ValidFieldTypes guard | domain_domain_builder_test.go |
-| Domain record on non-existent domain | FindDomainBySlug error | command_domain_test.go |
-| Domain not found on update/delete | FindDomainByID error | command_domain_test.go |
-| Domain record not found | FindRecordByID error | command_domain_test.go |
-| Domain record repo error | SaveRecordErr | command_domain_test.go |
-| Pagination: negative page | HTTP handler default | http_page_handler_test.go |
-| Pagination: zero limit | HTTP handler default | http_page_handler_test.go |
-| Pagination: non-numeric | strconv.Atoi fallback | http_page_handler_test.go |
-| Pagination: beyond total | Offset > count | http_page_handler_test.go |
-| Unregistered command/query | Bus dispatch error | commandbus_test.go, querybus_test.go |
-| Hook blocks execution | Before hook error | commandbus_test.go |
-| **Panic in handler** | Recovery middleware | middleware_test.go |
-| CORS preflight | OPTIONS → 204 | middleware_test.go |
-| Method not allowed | PATCH on pages | http_page_handler_test.go |
-| Password leak via JSON | json:"-" tag | domain_user_test.go |
-| Event subscriber isolation | Error in one sub | eventbus_test.go |
-| **JWT token generation & validation** | Generate, validate, expiry | auth_jwt_test.go |
-| **JWT expired token** | Token past expiry | auth_jwt_test.go |
-| **JWT wrong signing key** | Different secret | auth_jwt_test.go |
-| **JWT unique JTI per token** | Each token unique ID | auth_jwt_test.go |
-| **Password hash/verify (bcrypt)** | Hash then check | auth_jwt_test.go |
-| **Wrong password rejected** | bcrypt mismatch | auth_jwt_test.go |
-| **Same password different hash** | bcrypt salt | auth_jwt_test.go |
-| **Missing Authorization header** | No header → 401 | auth_middleware_test.go |
-| **Invalid Bearer format** | No "Bearer " prefix → 401 | auth_middleware_test.go |
-| **Invalid token string** | Bad token → 401 | auth_middleware_test.go |
-| **Expired token** | Expired JWT → 401 | auth_middleware_test.go |
-| **Token from different secret** | Wrong key → 401 | auth_middleware_test.go |
-| **Bearer case insensitive** | "bearer" accepted | auth_middleware_test.go |
-| **RBAC: admin access admin route** | Allowed | auth_middleware_test.go |
-| **RBAC: editor blocked from admin** | 403 Forbidden | auth_middleware_test.go |
-| **RBAC: viewer blocked from editor** | 403 Forbidden | auth_middleware_test.go |
-| **RBAC: multi-role route** | All permitted roles pass | auth_middleware_test.go |
-| **RBAC: no token → 401 before role check** | Auth before RBAC | auth_middleware_test.go |
-| **NotFoundError type detection** | IsNotFound() | apperror_test.go |
-| **ValidationError type detection** | IsValidation() | apperror_test.go |
-| **ConflictError type detection** | IsConflict() | apperror_test.go |
-| **UnauthorizedError type detection** | IsUnauthorized() | apperror_test.go |
-| **ForbiddenError type detection** | IsForbidden() | apperror_test.go |
-| **Plain error false-positive** | No false match | apperror_test.go |
-| **Max body size middleware** | Small body passes | auth_middleware_test.go |
-| **GetClaims nil context** | No claims → nil | auth_middleware_test.go |
+| Settings (UpdateSettings, GetSettings) | `settings.WriteRepository`, `settings.ReadRepository` | High |
+| Media (UploadMedia, UpdateMedia, DeleteMedia, ListMedia, GetMedia) | `media.WriteRepository`, `media.ReadRepository` | High |
+| APIToken (Create/Update/Delete/Toggle, List) | `apitoken.WriteRepository`, `apitoken.ReadRepository` | High |
+| Dashboard (GetDashboardStats, GetDailyContentStats) | sqlx.DB mock / in-memory | Medium |
+| ActivityLog (ListActivityLogs, ActivityLogHandler) | sqlx.DB mock | Medium |
+| Site commands (CreateSite, AddSiteMember, dll) | `site.WriteRepository` | Medium |
+| HTTP handlers untuk semua fitur baru | - | High |
 
 ---
 
-## 4. Menjalankan Tests
+## 3. Integration Tests
+
+### 3.1 Existing
+| File | Coverage |
+|---|---|
+| `tests/integration/page_test.go` | Page CRUD dengan real PostgreSQL via Testcontainers |
+
+### 3.2 Planned
+- Content + ContentCategory integration
+- Multi-tenant isolation test (data tidak bocor antar site_id)
+- API Token authentication flow
+- Media CRUD integration
+
+---
+
+## 4. Test Commands
 
 ```bash
-# Unit tests (tidak butuh database)
-make test
-
-# Unit tests dengan race detector
-make test-race
-
-# Integration tests (butuh Docker running)
-make infra-up
-make migrate-up
-make test-integration
-
-# Specific test file
-go test ./tests/unit/... -run TestContentPublish -v
+make test             # Unit tests semua
+make test-race        # Race condition detection (wajib sebelum PR)
+make test-integration # Integration tests (butuh Docker)
 ```
 
 ---
 
-## 5. Coverage Gaps (TODO)
+## 5. Changelog
 
-| Area | Deskripsi | Priority |
+| Versi | Tanggal | Perubahan |
 |---|---|---|
-| Integration tests | Full CRUD dengan real PostgreSQL untuk semua entity | High |
-| Concurrent write test | Simulasi race condition pada update | Medium |
-| Large payload test | Request body > 1MB (body size limit) | Low |
-| SQL injection test | Malicious input di slug/name | Medium |
-| Cache consistency test | Verify cache invalidated after mutation | High |
-| Load test | k6/vegeta untuk throughput benchmark | Medium |
-| ~~Authentication test~~ | ~~JWT middleware~~ | ~~Done (v1.1.0)~~ |
-| Token refresh flow | End-to-end refresh token rotation | Medium |
-| Token blacklist | Revoked token rejection | Pending (not implemented) |
-| Login brute force | Rate limiting on login endpoint | Medium |
+| 1.0.0 | 2026-03-16 | Initial: 284 test cases |
+| 1.1.0 | 2026-03-16 | +50 test cases: JWT, Auth middleware, RBAC, apperror |
+| 1.2.0 | 2026-03-16 | +0: Domain builder mocks, domain builder tests (sudah termasuk sebelumnya) |
+| 1.3.0 | 2026-03-17 | Dokumen diupdate: mencatat test gap untuk Settings/Media/Tokens/Dashboard/ActivityLog |
 
 ---
-*Di-generate saat project init. Update sesuai perkembangan project.*
+*Di-generate dan di-update oleh AI. Review sebelum production deploy.*

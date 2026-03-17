@@ -1,7 +1,7 @@
 # PRD: Vernon CMS
 
-**Versi:** 1.2.0
-**Tanggal:** 2026-03-16
+**Versi:** 1.3.0
+**Tanggal:** 2026-03-17
 **Status:** In Development
 **Stack:** Go 1.25 / Clean Architecture + CQRS + EDA
 **Author:** AI-Generated
@@ -12,13 +12,14 @@
 ## 1. Overview
 
 ### 1.1 Latar Belakang
-Vernon CMS adalah Content Management System yang dibangun untuk mengelola konten halaman web secara dinamis. Admin dapat membuat page dengan template variable (JSON), dan user dapat mengisi konten berdasarkan variable tersebut.
+Vernon CMS adalah Content Management System multi-tenant yang dibangun untuk mengelola konten halaman web secara dinamis. Admin dapat membuat page dengan template variable (JSON), mengelola media, mengatur konfigurasi site, dan memantau aktivitas melalui activity log.
 
 ### 1.2 Tujuan
-- Menyediakan API REST untuk mengelola pages, categories, contents, dan users
-- Admin dapat preset JSON variables sebagai template di setiap Page
-- User mengisi konten berdasarkan template variable yang sudah disiapkan admin
+- Menyediakan API REST untuk mengelola pages, categories, contents, users, media, settings, dan API tokens
+- Multi-tenancy: setiap site memiliki data yang terisolasi via `site_id`
+- Domain Builder (no-code): admin bisa mendefinisikan custom entity types + dynamic CRUD
 - CDN cache otomatis ter-invalidate saat ada perubahan data
+- Activity log real-time untuk audit trail
 
 ### 1.3 Tech Stack
 
@@ -28,7 +29,7 @@ Vernon CMS adalah Content Management System yang dibangun untuk mengelola konten
 | HTTP Router | Chi v5 |
 | Dependency Injection | Uber FX |
 | Event Bus | Watermill + NATS JetStream (InMemory fallback) |
-| Database | PostgreSQL 17 + sqlx + sqlc |
+| Database | PostgreSQL 17 + sqlx |
 | Cache | Redis 7 |
 | Observability | OpenTelemetry + Prometheus + Jaeger |
 | Logging | zerolog (structured, trace-aware) |
@@ -42,61 +43,65 @@ Vernon CMS adalah Content Management System yang dibangun untuk mengelola konten
 
 ## 2. Domain Model
 
-### 2.1 Entity: Page
+### 2.1 Entity: User
 | Field | Type | Constraint | Deskripsi |
 |---|---|---|---|
 | id | UUID | PK | Primary key |
+| email | VARCHAR(255) | UNIQUE, NOT NULL | Email login |
+| password_hash | VARCHAR(255) | NOT NULL | Hash password (`json:"-"`) |
+| name | VARCHAR(255) | NOT NULL | Nama lengkap |
+| role | VARCHAR(20) | NOT NULL, CHECK | admin / editor / viewer |
+| is_active | BOOLEAN | NOT NULL, DEFAULT true | Status aktif |
+| created_at | TIMESTAMPTZ | NOT NULL | Waktu dibuat |
+| updated_at | TIMESTAMPTZ | NOT NULL | Waktu diubah |
+
+### 2.2 Entity: Site
+| Field | Type | Constraint | Deskripsi |
+|---|---|---|---|
+| id | UUID | PK | Primary key |
+| name | VARCHAR(255) | NOT NULL | Nama site |
+| slug | VARCHAR(255) | UNIQUE, NOT NULL | Identifier unik |
+| custom_domain | VARCHAR(255) | UNIQUE, NULLABLE | Domain kustom |
+| is_active | BOOLEAN | DEFAULT true | Status aktif |
+| created_at | TIMESTAMPTZ | NOT NULL | Waktu dibuat |
+| updated_at | TIMESTAMPTZ | NOT NULL | Waktu diubah |
+
+**Site Members:** Relasi user ↔ site dengan field `role` (admin/editor/viewer) per-site.
+
+### 2.3 Entity: Page
+| Field | Type | Constraint | Deskripsi |
+|---|---|---|---|
+| id | UUID | PK | Primary key |
+| site_id | UUID | FK → sites | Multi-tenancy |
 | name | VARCHAR(255) | NOT NULL | Nama halaman |
-| slug | VARCHAR(255) | UNIQUE, NOT NULL | URL-friendly identifier |
-| variables | JSONB | NOT NULL, DEFAULT '{}' | Template variables preset oleh admin |
-| is_active | BOOLEAN | NOT NULL, DEFAULT true | Status aktif/nonaktif |
-| created_at | TIMESTAMPTZ | NOT NULL | Waktu dibuat |
-| updated_at | TIMESTAMPTZ | NOT NULL | Waktu terakhir diubah |
+| slug | VARCHAR(255) | NOT NULL | URL-friendly identifier |
+| variables | JSONB | NOT NULL, DEFAULT '{}' | Template variables |
+| is_active | BOOLEAN | NOT NULL, DEFAULT true | Status aktif |
+| created_at/updated_at | TIMESTAMPTZ | | |
 
-**Domain Rules:**
-- Name dan slug wajib diisi (tidak boleh kosong)
-- Slug harus unik
-- Variables default ke `{}` jika tidak diisi
-- Page baru otomatis `is_active = true`
-
-### 2.2 Entity: ContentCategory
+### 2.4 Entity: ContentCategory
 | Field | Type | Constraint | Deskripsi |
 |---|---|---|---|
 | id | UUID | PK | Primary key |
+| site_id | UUID | FK → sites | Multi-tenancy |
 | name | VARCHAR(255) | NOT NULL | Nama kategori |
-| slug | VARCHAR(255) | UNIQUE, NOT NULL | URL-friendly identifier |
-| created_at | TIMESTAMPTZ | NOT NULL | Waktu dibuat |
-| updated_at | TIMESTAMPTZ | NOT NULL | Waktu terakhir diubah |
+| slug | VARCHAR(255) | NOT NULL | URL-friendly identifier |
 
-**Domain Rules:**
-- Name dan slug wajib diisi
-- Slug harus unik
-
-### 2.3 Entity: Content
+### 2.5 Entity: Content
 | Field | Type | Constraint | Deskripsi |
 |---|---|---|---|
 | id | UUID | PK | Primary key |
+| site_id | UUID | FK → sites | Multi-tenancy |
 | title | VARCHAR(500) | NOT NULL | Judul konten |
-| slug | VARCHAR(500) | UNIQUE, NOT NULL | URL-friendly identifier |
-| body | TEXT | NOT NULL, DEFAULT '' | Isi konten lengkap |
-| excerpt | TEXT | NOT NULL, DEFAULT '' | Ringkasan konten |
-| status | VARCHAR(20) | NOT NULL, CHECK | draft / published / archived |
-| page_id | UUID | FK → pages, CASCADE | Referensi ke halaman |
-| category_id | UUID | FK → content_categories, CASCADE | Referensi ke kategori |
-| author_id | UUID | FK → users, CASCADE | Referensi ke penulis |
-| metadata | JSONB | NOT NULL, DEFAULT '{}' | Data tambahan (SEO, tags, dll) |
-| published_at | TIMESTAMPTZ | NULLABLE | Waktu pertama kali dipublish |
-| created_at | TIMESTAMPTZ | NOT NULL | Waktu dibuat |
-| updated_at | TIMESTAMPTZ | NOT NULL | Waktu terakhir diubah |
-
-**Domain Rules:**
-- Title dan slug wajib diisi
-- Slug harus unik
-- Status awal selalu `draft`
-- Tidak boleh publish konten yang sudah `published` (double publish guard)
-- `published_at` di-set saat pertama kali publish, di-reset saat `ToDraft()`
-- Body dan excerpt boleh kosong
-- Metadata default ke `{}`
+| slug | VARCHAR(500) | NOT NULL | URL identifier |
+| body | TEXT | DEFAULT '' | Isi konten |
+| excerpt | TEXT | DEFAULT '' | Ringkasan |
+| status | VARCHAR(20) | CHECK | draft / published / archived |
+| page_id | UUID | FK → pages | Referensi halaman |
+| category_id | UUID | FK → content_categories | Referensi kategori |
+| author_id | UUID | FK → users | Penulis |
+| metadata | JSONB | DEFAULT '{}' | SEO, tags, dll |
+| published_at | TIMESTAMPTZ | NULLABLE | Waktu publish |
 
 **State Transitions:**
 ```
@@ -104,246 +109,382 @@ draft → published (via Publish)
 draft → archived (via Archive)
 published → archived (via Archive)
 archived → draft (via ToDraft)
-archived → published (via Publish)
-published → published (BLOCKED - error)
 ```
 
-### 2.4 Entity: User
-| Field | Type | Constraint | Deskripsi |
-|---|---|---|---|
-| id | UUID | PK | Primary key |
-| email | VARCHAR(255) | UNIQUE, NOT NULL | Email login |
-| password_hash | VARCHAR(255) | NOT NULL | Hash password (tidak di-expose via JSON) |
-| name | VARCHAR(255) | NOT NULL | Nama lengkap |
-| role | VARCHAR(20) | NOT NULL, CHECK | admin / editor / viewer |
-| is_active | BOOLEAN | NOT NULL, DEFAULT true | Status aktif |
-| created_at | TIMESTAMPTZ | NOT NULL | Waktu dibuat |
-| updated_at | TIMESTAMPTZ | NOT NULL | Waktu terakhir diubah |
+### 2.6 Entity: DataType (Domain Builder)
+Tabel `data_types` + `data_fields` + `data_records`. Mendukung custom entity types yang didefinisikan admin di runtime.
 
-**Domain Rules:**
-- Email, password_hash, dan name wajib diisi
-- Email harus unik
-- Role default ke `viewer` jika kosong
-- User baru otomatis `is_active = true`
-- `password_hash` di-tag `json:"-"` (tidak ter-expose di response)
+### 2.7 Entity: SiteSettings
+| Field | Type | Deskripsi |
+|---|---|---|
+| id | UUID | PK |
+| site_id | UUID | UNIQUE FK → sites |
+| site_name | VARCHAR(500) | Nama site |
+| site_description/url | TEXT | Info site |
+| logo_url/favicon_url | TEXT | Asset branding |
+| default_meta_title/description | TEXT | SEO defaults |
+| default_og_image | TEXT | OG default |
+| primary_color/secondary_color | VARCHAR(20) | Tema warna |
+| footer_text | TEXT | Footer |
+| google_analytics_id | VARCHAR(100) | Analytics |
+| custom_head_code/body_code | TEXT | Custom scripts |
+| maintenance_mode | BOOLEAN | Maintenance switch |
+| maintenance_message | TEXT | Pesan maintenance |
+| updated_at | TIMESTAMPTZ | |
+
+### 2.8 Entity: MediaFile
+| Field | Type | Deskripsi |
+|---|---|---|
+| id | UUID | PK |
+| site_id | UUID | FK → sites |
+| file_name | VARCHAR | Nama file |
+| file_url | TEXT | URL file |
+| thumbnail_url | TEXT | URL thumbnail |
+| mime_type | VARCHAR | MIME type |
+| file_size | BIGINT | Ukuran bytes |
+| width/height | INT | Dimensi (gambar) |
+| alt/caption | TEXT | Metadata |
+| folder | TEXT | Folder organisasi |
+| uploaded_by | UUID | FK → users |
+
+### 2.9 Entity: ActivityLog
+| Field | Type | Deskripsi |
+|---|---|---|
+| id | UUID | PK |
+| site_id | UUID | FK → sites |
+| user_id | UUID | FK → users (nullable) |
+| user_name | VARCHAR | Nama user saat aksi |
+| action | VARCHAR | created / updated / published / deleted |
+| entity_type | VARCHAR | content / page / dll |
+| entity_id | UUID | ID entitas |
+| entity_title | TEXT | Judul entitas |
+| details | TEXT | Detail tambahan |
+| ip_address | INET | IP address |
+| created_at | TIMESTAMPTZ | Waktu aksi |
+
+### 2.10 Entity: APIToken
+| Field | Type | Deskripsi |
+|---|---|---|
+| id | UUID | PK |
+| site_id | UUID | FK → sites |
+| name | VARCHAR(255) | Nama token |
+| token_hash | VARCHAR(255) | SHA-256 hash (UNIQUE) |
+| prefix | VARCHAR(10) | 8 karakter pertama plain token |
+| permissions | JSONB | Array string permissions |
+| expires_at | TIMESTAMPTZ | Expiry (nullable) |
+| last_used_at | TIMESTAMPTZ | Terakhir digunakan |
+| is_active | BOOLEAN | Status aktif |
+| created_at | TIMESTAMPTZ | |
 
 ---
 
 ## 3. Commands & Queries
 
-### 3.1 Commands (15 total)
-| Command | Handler | Event Dipublish | Validasi |
-|---|---|---|---|
-| Register | internal/command/register/ | user.created | email (valid), password (min 8), name required |
-| Login | internal/command/login/ | - | email (valid), password required |
-| CreatePage | internal/command/create_page/ | page.created | name, slug required |
-| UpdatePage | internal/command/update_page/ | page.updated | name, slug required; page must exist |
-| DeletePage | internal/command/delete_page/ | page.deleted | page must exist |
-| CreateContentCategory | internal/command/create_content_category/ | content_category.created | name, slug required |
-| UpdateContentCategory | internal/command/update_content_category/ | content_category.updated | name, slug required; must exist |
-| DeleteContentCategory | internal/command/delete_content_category/ | content_category.deleted | must exist |
-| CreateContent | internal/command/create_content/ | content.created | title, slug, page_id, category_id, author_id required |
-| UpdateContent | internal/command/update_content/ | content.updated | title, slug required; must exist |
-| DeleteContent | internal/command/delete_content/ | content.deleted | must exist |
-| PublishContent | internal/command/publish_content/ | content.published | must exist; must not be already published |
-| CreateUser | internal/command/create_user/ | user.created | email (valid format), password_hash, name, role (oneof) |
-| UpdateUser | internal/command/update_user/ | user.updated | email, name, role required; must exist |
-| DeleteUser | internal/command/delete_user/ | user.deleted | must exist |
+### 3.1 Commands (35 total)
 
-### 3.2 Queries (9 total)
-| Query | Handler | Cache Key | TTL |
-|---|---|---|---|
-| GetPage | internal/query/get_page/ | page:{id} | 5 menit |
-| ListPage | internal/query/list_page/ | - | - |
-| GetContentCategory | internal/query/get_content_category/ | content_category:{id} | 5 menit |
-| ListContentCategory | internal/query/list_content_category/ | - | - |
-| GetContent | internal/query/get_content/ | content:{id} | 5 menit |
-| GetContentBySlug | internal/query/get_content_by_slug/ | content:slug:{slug} | 5 menit |
-| ListContent | internal/query/list_content/ | - | - |
-| GetUser | internal/query/get_user/ | user:{id} | 5 menit |
-| ListUser | internal/query/list_user/ | - | - |
+| Command | Handler | Event |
+|---|---|---|
+| Register | command/register/ | user.created |
+| Login | command/login/ | - |
+| CreatePage | command/create_page/ | page.created |
+| UpdatePage | command/update_page/ | page.updated |
+| DeletePage | command/delete_page/ | page.deleted |
+| CreateContentCategory | command/create_content_category/ | content_category.created |
+| UpdateContentCategory | command/update_content_category/ | content_category.updated |
+| DeleteContentCategory | command/delete_content_category/ | content_category.deleted |
+| CreateContent | command/create_content/ | content.created |
+| UpdateContent | command/update_content/ | content.updated |
+| DeleteContent | command/delete_content/ | content.deleted |
+| PublishContent | command/publish_content/ | content.published |
+| CreateUser | command/create_user/ | user.created |
+| UpdateUser | command/update_user/ | user.updated |
+| DeleteUser | command/delete_user/ | user.deleted |
+| CreateSite | command/create_site/ | site.created |
+| UpdateSite | command/update_site/ | site.updated |
+| DeleteSite | command/delete_site/ | site.deleted |
+| AddSiteMember | command/add_site_member/ | site.member_added |
+| RemoveSiteMember | command/remove_site_member/ | site.member_removed |
+| UpdateSiteMemberRole | command/update_site_member_role/ | site.member_role_updated |
+| CreateData | command/create_data/ | data.created |
+| UpdateData | command/update_data/ | data.updated |
+| DeleteData | command/delete_data/ | data.deleted |
+| CreateDataRecord | command/create_data_record/ | data_record.created |
+| UpdateDataRecord | command/update_data_record/ | data_record.updated |
+| DeleteDataRecord | command/delete_data_record/ | data_record.deleted |
+| UpdateSettings | command/update_settings/ | - |
+| UploadMedia | command/upload_media/ | - |
+| UpdateMedia | command/update_media/ | - |
+| DeleteMedia | command/delete_media/ | - |
+| CreateAPIToken | command/create_api_token/ | - |
+| UpdateAPIToken | command/update_api_token/ | - |
+| DeleteAPIToken | command/delete_api_token/ | - |
+| ToggleAPIToken | command/toggle_api_token/ | - |
 
-**Pagination:** Semua List query mendukung `?page=X&limit=Y` (default: page=1, limit=20)
+### 3.2 Queries (25 total)
 
-### 3.3 Side Effects (Event Handlers)
+| Query | Handler | Cache |
+|---|---|---|
+| GetPage | query/get_page/ | Redis 5m |
+| ListPage | query/list_page/ | - |
+| GetContentCategory | query/get_content_category/ | Redis 5m |
+| ListContentCategory | query/list_content_category/ | - |
+| GetContent | query/get_content/ | Redis 5m |
+| GetContentBySlug | query/get_content_by_slug/ | Redis 5m |
+| ListContent | query/list_content/ | - |
+| GetUser | query/get_user/ | Redis 5m |
+| ListUser | query/list_user/ | - |
+| GetSite | query/get_site/ | - |
+| ListSite | query/list_site/ | - |
+| ListSiteMember | query/list_site_member/ | - |
+| ListData | query/list_data/ | - |
+| GetData | query/get_data/ | - |
+| ListDataRecord | query/list_data_record/ | - |
+| GetDataRecord | query/get_data_record/ | - |
+| ListDataRecordOptions | query/list_data_record_options/ | - |
+| GetDashboardStats | query/get_dashboard_stats/ | - |
+| GetDailyContentStats | query/get_daily_content_stats/ | - |
+| GetSettings | query/get_settings/ | - |
+| ListMedia | query/list_media/ | - |
+| GetMedia | query/get_media/ | - |
+| ListMediaFolders | query/list_media_folders/ | - |
+| ListActivityLogs | query/list_activity_logs/ | - |
+| ListAPITokens | query/list_api_tokens/ | - |
+
+### 3.3 Event Handlers
+
 | Event | Handler | Aksi |
 |---|---|---|
-| page.created/updated/deleted | CDNCacheHandler | Invalidate Redis cache keys `page:*` |
-| content_category.created/updated/deleted | CDNCacheHandler | Invalidate Redis cache keys `content_category:*` |
-| content.created/updated/published/deleted | CDNCacheHandler | Invalidate Redis cache keys `content:*` |
-| user.created/updated/deleted | CDNCacheHandler | Invalidate Redis cache keys `user:*` |
+| page.*/content.*/content_category.*/user.* | CDNCacheHandler | Invalidate Redis cache |
+| data.*/data_record.* | CDNCacheHandler | Invalidate Redis cache |
+| content.created/updated/published/deleted | ActivityLogHandler | Insert activity_log |
+| page.created/updated/deleted | ActivityLogHandler | Insert activity_log |
 
 ---
 
-## 4. API Endpoints (25 total)
+## 4. API Endpoints (60+ total)
 
 ### 4.1 Health (Public)
-| Method | Path | Command/Query | Auth | Response |
-|---|---|---|---|---|
-| GET | /health | - | No | `{"status":"ok"}` |
+| Method | Path |
+|---|---|
+| GET | /health |
 
-### 4.2 Authentication (Public)
-| Method | Path | Command/Query | Auth | Request Body |
-|---|---|---|---|---|
-| POST | /api/v1/auth/register | Register | No | `{email, password, name}` |
-| POST | /api/v1/auth/login | Login | No | `{email, password}` |
-| POST | /api/v1/auth/refresh | - | No | `{refresh_token}` |
+### 4.2 Authentication (Public, TenantResolution via X-Site-ID)
+| Method | Path | Auth |
+|---|---|---|
+| POST | /api/v1/auth/register | No |
+| POST | /api/v1/auth/login | No |
+| POST | /api/v1/auth/refresh | No |
 
-**Login Response:**
+### 4.3 Pages (Protected, RequireTenant)
+| Method | Path | Role |
+|---|---|---|
+| GET | /api/v1/pages | any |
+| GET | /api/v1/pages/{id} | any |
+| POST | /api/v1/pages | admin, editor |
+| PUT | /api/v1/pages/{id} | admin, editor |
+| DELETE | /api/v1/pages/{id} | admin |
+
+### 4.4 Content Categories (Protected, RequireTenant)
+| Method | Path | Role |
+|---|---|---|
+| GET | /api/v1/content-categories | any |
+| GET | /api/v1/content-categories/{id} | any |
+| POST | /api/v1/content-categories | admin, editor |
+| PUT | /api/v1/content-categories/{id} | admin, editor |
+| DELETE | /api/v1/content-categories/{id} | admin |
+
+### 4.5 Contents (Protected, RequireTenant)
+| Method | Path | Role |
+|---|---|---|
+| GET | /api/v1/contents | any |
+| GET | /api/v1/contents/{id} | any |
+| GET | /api/v1/contents/slug/{slug} | any |
+| POST | /api/v1/contents | admin, editor |
+| PUT | /api/v1/contents/{id} | admin, editor |
+| PUT | /api/v1/contents/{id}/publish | admin, editor |
+| DELETE | /api/v1/contents/{id} | admin |
+
+### 4.6 Domain Builder (Protected, RequireTenant)
+| Method | Path | Role |
+|---|---|---|
+| GET | /api/v1/domains | any |
+| GET | /api/v1/domains/{id} | any |
+| POST | /api/v1/domains | admin |
+| PUT | /api/v1/domains/{id} | admin |
+| DELETE | /api/v1/domains/{id} | admin |
+| GET | /api/v1/domains/{slug}/records | any |
+| GET | /api/v1/domains/{slug}/records/options | any |
+| GET | /api/v1/domains/{slug}/records/{id} | any |
+| POST | /api/v1/domains/{slug}/records | admin, editor |
+| PUT | /api/v1/domains/{slug}/records/{id} | admin, editor |
+| DELETE | /api/v1/domains/{slug}/records/{id} | admin |
+
+### 4.7 Dashboard (Protected, RequireTenant) — Flat JSON response
+| Method | Path | Query Params |
+|---|---|---|
+| GET | /api/v1/dashboard/stats | - |
+| GET | /api/v1/dashboard/daily-content | `?days=7` |
+
+**Response stats:** `{"total_posts": N, "total_visits": 0, "today_visits": 0, "visit_growth_percent": 0.0}`
+**Response daily:** `[{"date": "YYYY-MM-DD", "count": N}, ...]`
+
+### 4.8 Settings (Protected, RequireTenant, admin) — Flat JSON response
+| Method | Path | Request Body |
+|---|---|---|
+| GET | /api/v1/settings | - |
+| PUT | /api/v1/settings | `{site_name, site_description, logo_url, ...}` |
+
+### 4.9 Media (Protected, RequireTenant) — Flat JSON response
+| Method | Path | Role | Query Params |
+|---|---|---|---|
+| GET | /api/v1/media | any | `?page=&per_page=&search=&mime_type=&folder=` |
+| GET | /api/v1/media/folders | any | - |
+| GET | /api/v1/media/{id} | any | - |
+| POST | /api/v1/media/upload | admin, editor | JSON body: `{file_name, file_url, mime_type, file_size, ...}` |
+| PUT | /api/v1/media/{id} | admin, editor | `{alt, caption, folder}` |
+| DELETE | /api/v1/media/{id} | admin | - |
+
+### 4.10 Activity Logs (Protected, RequireTenant) — Flat JSON array
+| Method | Path | Query Params |
+|---|---|---|
+| GET | /api/v1/activity-logs | `?page=&per_page=&search=&action=&entity_type=&user_id=&date_from=&date_to=` |
+
+### 4.11 API Tokens (Protected, RequireTenant, admin) — Flat JSON response
+| Method | Path | Request Body |
+|---|---|---|
+| GET | /api/v1/tokens | - |
+| POST | /api/v1/tokens | `{name, permissions, expires_at}` |
+| PUT | /api/v1/tokens/{id} | `{name, permissions, expires_at}` |
+| DELETE | /api/v1/tokens/{id} | - |
+| PUT | /api/v1/tokens/{id}/toggle-active | - |
+
+**Create response includes plain token (ditampilkan sekali saja).**
+
+### 4.12 Users (Protected, admin global role)
+| Method | Path | Role |
+|---|---|---|
+| GET/POST | /api/v1/users | admin |
+| GET/PUT/DELETE | /api/v1/users/{id} | admin |
+
+### 4.13 Sites (Protected)
+| Method | Path |
+|---|---|
+| GET/POST | /api/v1/sites |
+| GET/PUT/DELETE | /api/v1/sites/{id} |
+| GET/POST | /api/v1/sites/{id}/members |
+| PUT | /api/v1/sites/{id}/members/{userID}/role |
+| DELETE | /api/v1/sites/{id}/members/{userID} |
+
+### 4.14 Response Format
+
 ```json
-{
-  "data": {
-    "access_token": "eyJ...",
-    "refresh_token": "eyJ...",
-    "expires_at": 1710600000
-  }
-}
-```
-
-### 4.3 Pages (Protected)
-| Method | Path | Command/Query | Role Required | Request Body |
-|---|---|---|---|---|
-| POST | /api/v1/pages | CreatePage | admin, editor | `{name, slug, variables}` |
-| GET | /api/v1/pages | ListPage | any | Query: `?page=&limit=` |
-| GET | /api/v1/pages/:id | GetPage | any | - |
-| PUT | /api/v1/pages/:id | UpdatePage | admin, editor | `{name, slug, variables, is_active}` |
-| DELETE | /api/v1/pages/:id | DeletePage | admin | - |
-
-### 4.4 Content Categories (Protected)
-| Method | Path | Command/Query | Role Required | Request Body |
-|---|---|---|---|---|
-| POST | /api/v1/content-categories | CreateContentCategory | admin, editor | `{name, slug}` |
-| GET | /api/v1/content-categories | ListContentCategory | any | Query: `?page=&limit=` |
-| GET | /api/v1/content-categories/:id | GetContentCategory | any | - |
-| PUT | /api/v1/content-categories/:id | UpdateContentCategory | admin, editor | `{name, slug}` |
-| DELETE | /api/v1/content-categories/:id | DeleteContentCategory | admin | - |
-
-### 4.5 Contents (Protected)
-| Method | Path | Command/Query | Role Required | Request Body |
-|---|---|---|---|---|
-| POST | /api/v1/contents | CreateContent | admin, editor | `{title, slug, body, excerpt, page_id, category_id, author_id, metadata}` |
-| GET | /api/v1/contents | ListContent | any | Query: `?page=&limit=` |
-| GET | /api/v1/contents/:id | GetContent | any | - |
-| GET | /api/v1/contents/slug/:slug | GetContentBySlug | any | - |
-| PUT | /api/v1/contents/:id | UpdateContent | admin, editor | `{title, slug, body, excerpt, metadata}` |
-| PUT | /api/v1/contents/:id/publish | PublishContent | admin, editor | - |
-| DELETE | /api/v1/contents/:id | DeleteContent | admin | - |
-
-### 4.6 Users (Protected — Admin Only)
-| Method | Path | Command/Query | Role Required | Request Body |
-|---|---|---|---|---|
-| POST | /api/v1/users | CreateUser | admin | `{email, password_hash, name, role}` |
-| GET | /api/v1/users | ListUser | admin | Query: `?page=&limit=` |
-| GET | /api/v1/users/:id | GetUser | admin | - |
-| PUT | /api/v1/users/:id | UpdateUser | admin | `{email, name, role}` |
-| DELETE | /api/v1/users/:id | DeleteUser | admin | - |
-
-### 4.6 Response Format
-```json
-// Success
+// Endpoint lama (content, pages, users, sites, domains)
 { "data": { ... } }
 
-// Error
+// Endpoint baru (dashboard, settings, media, activity-logs, tokens)
+{ ... }   // flat JSON, no wrapper
+
+// Error (semua endpoint)
 { "error": "error message" }
 ```
 
-### 4.7 HTTP Status Codes
-| Code | Digunakan Saat |
-|---|---|
-| 200 | GET, PUT, DELETE berhasil; Login berhasil |
-| 201 | POST berhasil (resource created); Register berhasil |
-| 204 | OPTIONS preflight (CORS) |
-| 400 | Invalid input (malformed JSON, missing field, invalid UUID, invalid email format, invalid role, ValidationError) |
-| 401 | Missing/invalid/expired JWT token; Wrong credentials (UnauthorizedError) |
-| 403 | Insufficient role permissions (ForbiddenError) |
-| 404 | Resource not found (NotFoundError) |
-| 405 | Method not allowed |
-| 409 | Duplicate resource (ConflictError — duplicate email, slug) |
-| 500 | Internal server error (repo error, event bus failure) |
+---
+
+## 5. Multi-tenancy
+
+- Setiap request ke tenant-scoped routes wajib menyertakan `X-Site-ID` header (UUID)
+- Middleware `TenantResolution` resolve site dari header atau Host
+- Middleware `RequireTenant` menolak request jika site tidak ditemukan
+- Middleware `RequireSiteRole` validasi `claims.SiteID == context.SiteID` + role check
 
 ---
 
-## 5. Non-Functional Requirements
+## 6. Non-Functional Requirements
 
 | Kategori | Target | Status |
 |---|---|---|
 | Response time (p95) | < 50ms | Target |
-| Throughput | > 1000 req/s | Target |
-| Unit test coverage | >= 80% | Implemented (284 test cases) |
-| Integration test | Testcontainers | Scaffold ready |
+| Unit test coverage | >= 80% | 334 test cases (core) |
 | Database | PostgreSQL 17 | Implemented |
 | Cache | Redis 7 | Implemented |
 | Observability | OTel + Prometheus + Jaeger | Implemented |
 | Panic recovery | Middleware | Implemented |
 | CORS | Configurable origins | Implemented |
 | Authentication | JWT (access + refresh) | Implemented |
-| Authorization | RBAC (admin/editor/viewer) | Implemented |
-| Password hashing | bcrypt | Implemented |
+| Authorization | RBAC per-site + global | Implemented |
 | Body size limit | 1MB max | Implemented |
-| Custom error types | NotFound/Validation/Conflict/Unauthorized/Forbidden | Implemented |
+| Multi-tenancy | X-Site-ID header | Implemented |
 
 ---
 
-## 6. Database Migrations
+## 7. Database Migrations
 
 | No | File | Deskripsi |
 |---|---|---|
-| 001 | create_users | Tabel users dengan index email, role |
-| 002 | create_pages | Tabel pages dengan unique index slug |
-| 003 | create_content_categories | Tabel content_categories dengan unique index slug |
-| 004 | create_contents | Tabel contents dengan FK ke pages, content_categories, users + index status, page_id, category_id, author_id, published_at |
+| 001 | create_users | Tabel users |
+| 002 | create_pages | Tabel pages |
+| 003 | create_content_categories | Tabel content_categories |
+| 004 | create_contents | Tabel contents |
+| 005 | create_domains | Tabel data_types, data_fields, data_records |
+| 006 | create_sites | Tabel sites, site_members |
+| 007 | add_site_id_to_entities | Tambah site_id ke pages, contents, dll |
+| 008 | rename_domains_to_data | Rename domains → data_types (+ fields, records) |
+| 009 | create_site_settings | Tabel site_settings (UNIQUE per site) |
+| 010 | create_media_files | Tabel media_files |
+| 011 | create_activity_logs | Tabel activity_logs |
+| 012 | create_api_tokens | Tabel api_tokens (permissions JSONB) |
 
 ---
 
-## 7. Authentication & Authorization
+## 8. Authentication & Authorization
 
-### 7.1 JWT Token
-| Parameter | Value | Configurable |
-|---|---|---|
-| Algorithm | HMAC-SHA256 | No |
-| Access token expiry | 15 menit | `JWT_ACCESS_EXPIRY` |
-| Refresh token expiry | 7 hari | `JWT_REFRESH_EXPIRY` |
-| Secret key | env `JWT_SECRET` | Yes |
-| Issuer | `vernon-cms` | No |
-
-### 7.2 RBAC Permission Matrix
-| Resource | Read (GET) | Write (POST/PUT) | Delete |
-|---|---|---|---|
-| Pages | admin, editor, viewer | admin, editor | admin |
-| Content Categories | admin, editor, viewer | admin, editor | admin |
-| Contents | admin, editor, viewer | admin, editor | admin |
-| Users | admin | admin | admin |
-
-### 7.3 Password
-- Hashing: bcrypt with default cost (10)
-- Minimum length: 8 characters (validated on register)
-- `password_hash` field: `json:"-"` (never exposed in API response)
-
-### 7.4 Security Headers & Limits
-| Feature | Value |
+### 8.1 JWT Token
+| Parameter | Value |
 |---|---|
-| CORS origins | Configurable via `CORS_ALLOWED_ORIGINS` |
-| Max request body | 1MB |
-| Credentials | `Access-Control-Allow-Credentials: true` |
+| Algorithm | HMAC-SHA256 |
+| Access token | 15 menit (`JWT_ACCESS_EXPIRY`) |
+| Refresh token | 7 hari (`JWT_REFRESH_EXPIRY`) |
+| Claims | user_id, email, role, site_id, site_role |
+
+### 8.2 RBAC Permission Matrix
+| Resource | Read | Write | Delete |
+|---|---|---|---|
+| Pages | any | admin, editor | admin |
+| Content | any | admin, editor | admin |
+| Users | admin (global) | admin | admin |
+| Settings | - | admin | - |
+| Media | any | admin, editor | admin |
+| Activity Logs | any | - | - |
+| API Tokens | admin | admin | admin |
+| Domain Builder | any | admin | admin |
 
 ---
 
-## 8. Open Questions
-- [ ] Apakah perlu file/media upload?
-- [ ] Apakah perlu versioning untuk content?
-- [ ] Apakah perlu soft delete?
-- [ ] Apakah perlu audit log?
-- [ ] Apakah perlu token blacklist/revocation?
+## 9. Open Questions ✅ Resolved
+
+| Pertanyaan | Status |
+|---|---|
+| Perlu file/media upload? | ✅ Ya — implemented di `/api/v1/media` |
+| Perlu audit log? | ✅ Ya — `activity_logs` table + event handler |
+| Perlu API token? | ✅ Ya — `/api/v1/tokens` |
+| Perlu settings per-site? | ✅ Ya — `site_settings` table |
+
+### Masih Terbuka
+- [ ] Rate limiting (terutama login endpoint)
+- [ ] Token blacklist/revocation untuk logout
+- [ ] Versioning untuk content
+- [ ] Soft delete
 
 ---
 
-## 9. Changelog
+## 10. Changelog
 
 | Versi | Tanggal | Perubahan |
 |---|---|---|
 | 1.0.0 | 2026-03-16 | Initial PRD |
-| 1.1.0 | 2026-03-16 | Detail domain rules, state transitions, HTTP status codes, migration list |
-| 1.2.0 | 2026-03-16 | JWT auth, RBAC, auth endpoints, custom error types, CORS config, body size limit, 284 test cases |
+| 1.1.0 | 2026-03-16 | JWT auth, RBAC, custom error types, CORS |
+| 1.2.0 | 2026-03-16 | Domain Builder, 334 unit test cases |
+| 1.3.0 | 2026-03-17 | Multi-tenancy (Sites), Settings, Media, Activity Logs, API Tokens, Dashboard; migrations 009-012; fix path /data → /domains |
 
 ---
-*Di-generate saat project init. Update sesuai perkembangan project.*
+*Di-generate dan di-update oleh AI. Review sebelum production deploy.*
