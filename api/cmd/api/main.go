@@ -50,12 +50,18 @@ import (
 	updateapitoken "github.com/erickmo/vernon-cms/internal/command/update_api_token"
 	updateclient "github.com/erickmo/vernon-cms/internal/command/update_client"
 	createpayment "github.com/erickmo/vernon-cms/internal/command/create_payment"
+	createproduct "github.com/erickmo/vernon-cms/internal/command/create_product"
+	createproductcategory "github.com/erickmo/vernon-cms/internal/command/create_product_category"
+	deleteproduct "github.com/erickmo/vernon-cms/internal/command/delete_product"
+	deleteproductcategory "github.com/erickmo/vernon-cms/internal/command/delete_product_category"
 	updatecontent "github.com/erickmo/vernon-cms/internal/command/update_content"
 	updatecontentcategory "github.com/erickmo/vernon-cms/internal/command/update_content_category"
 	updatedata "github.com/erickmo/vernon-cms/internal/command/update_data"
 	updatedatarecord "github.com/erickmo/vernon-cms/internal/command/update_data_record"
 	updatemedia "github.com/erickmo/vernon-cms/internal/command/update_media"
 	updatepage "github.com/erickmo/vernon-cms/internal/command/update_page"
+	updateproduct "github.com/erickmo/vernon-cms/internal/command/update_product"
+	updateproductcategory "github.com/erickmo/vernon-cms/internal/command/update_product_category"
 	updatesettings "github.com/erickmo/vernon-cms/internal/command/update_settings"
 	updatesite "github.com/erickmo/vernon-cms/internal/command/update_site"
 	updateuser "github.com/erickmo/vernon-cms/internal/command/update_user"
@@ -63,6 +69,8 @@ import (
 	httpdelivery "github.com/erickmo/vernon-cms/internal/delivery/http"
 	"github.com/erickmo/vernon-cms/internal/eventhandler"
 	getclient "github.com/erickmo/vernon-cms/internal/query/get_client"
+	getproduct "github.com/erickmo/vernon-cms/internal/query/get_product"
+	getproductcategory "github.com/erickmo/vernon-cms/internal/query/get_product_category"
 	getdailycontentstats "github.com/erickmo/vernon-cms/internal/query/get_daily_content_stats"
 	getdashboardstats "github.com/erickmo/vernon-cms/internal/query/get_dashboard_stats"
 	getpayment "github.com/erickmo/vernon-cms/internal/query/get_payment"
@@ -80,6 +88,8 @@ import (
 	listapitoken "github.com/erickmo/vernon-cms/internal/query/list_api_tokens"
 	listclients "github.com/erickmo/vernon-cms/internal/query/list_clients"
 	listpayments "github.com/erickmo/vernon-cms/internal/query/list_payments"
+	listproductcategories "github.com/erickmo/vernon-cms/internal/query/list_product_categories"
+	listproducts "github.com/erickmo/vernon-cms/internal/query/list_products"
 	listcontent "github.com/erickmo/vernon-cms/internal/query/list_content"
 	listcontentcategory "github.com/erickmo/vernon-cms/internal/query/list_content_category"
 	listdata "github.com/erickmo/vernon-cms/internal/query/list_data"
@@ -125,12 +135,16 @@ func main() {
 			database.NewAPITokenRepository,
 			database.NewClientRepository,
 			database.NewPaymentRepository,
+			database.NewProductCategoryRepository,
+			database.NewProductRepository,
 
 			// Read Repositories (site-scoped wrappers)
 			database.NewPageReadRepository,
 			database.NewContentCategoryReadRepository,
 			database.NewContentReadRepository,
 			database.NewDataReadRepository,
+			database.NewProductCategoryReadRepository,
+			database.NewProductReadRepository,
 
 			// HTTP Handlers
 			newPageHandler,
@@ -147,6 +161,8 @@ func main() {
 			newAPITokenHandler,
 			newClientHandler,
 			newPaymentHandler,
+			newProductCategoryHandler,
+			newProductHandler,
 
 			// Login handler (special — needs ReadRepository + SiteReadRepo + JWTService)
 			newLoginHandler,
@@ -242,6 +258,14 @@ func newPaymentHandler(cmdBus *commandbus.CommandBus, queryBus *querybus.QueryBu
 	return httpdelivery.NewPaymentHandler(cmdBus, queryBus)
 }
 
+func newProductCategoryHandler(cmdBus *commandbus.CommandBus, queryBus *querybus.QueryBus) *httpdelivery.ProductCategoryHandler {
+	return httpdelivery.NewProductCategoryHandler(cmdBus, queryBus)
+}
+
+func newProductHandler(cmdBus *commandbus.CommandBus, queryBus *querybus.QueryBus) *httpdelivery.ProductHandler {
+	return httpdelivery.NewProductHandler(cmdBus, queryBus)
+}
+
 func newActivityLogHandler(queryBus *querybus.QueryBus) *httpdelivery.ActivityLogHandler {
 	return httpdelivery.NewActivityLogHandler(queryBus)
 }
@@ -264,6 +288,8 @@ func registerCommandHandlers(
 	apiTokenRepo *database.APITokenRepository,
 	clientRepo *database.ClientRepository,
 	paymentRepo *database.PaymentRepository,
+	productCatRepo *database.ProductCategoryRepository,
+	productRepo *database.ProductRepository,
 ) {
 	// Page commands
 	bus.Register("CreatePage", createpage.NewHandler(pageRepo, eb))
@@ -327,6 +353,16 @@ func registerCommandHandlers(
 
 	// Payment commands
 	bus.Register("CreatePayment", createpayment.NewHandler(paymentRepo))
+
+	// Product Category commands
+	bus.Register("CreateProductCategory", createproductcategory.NewHandler(productCatRepo, eb))
+	bus.Register("UpdateProductCategory", updateproductcategory.NewHandler(productCatRepo, eb))
+	bus.Register("DeleteProductCategory", deleteproductcategory.NewHandler(productCatRepo, eb))
+
+	// Product commands
+	bus.Register("CreateProduct", createproduct.NewHandler(productRepo, eb))
+	bus.Register("UpdateProduct", updateproduct.NewHandler(productRepo, eb))
+	bus.Register("DeleteProduct", deleteproduct.NewHandler(productRepo, eb))
 }
 
 func registerQueryHandlers(
@@ -346,6 +382,8 @@ func registerQueryHandlers(
 	apiTokenRepo *database.APITokenRepository,
 	clientRepo *database.ClientRepository,
 	paymentRepo *database.PaymentRepository,
+	productCatReadRepo *database.ProductCategoryReadRepository,
+	productReadRepo *database.ProductReadRepository,
 ) {
 	ttl := time.Duration(cfg.Redis.TTLSeconds) * time.Second
 
@@ -396,6 +434,14 @@ func registerQueryHandlers(
 	// Payment queries
 	bus.Register("ListPayments", listpayments.NewHandler(paymentRepo))
 	bus.Register("GetPayment", getpayment.NewHandler(paymentRepo))
+
+	// Product Category queries
+	bus.Register("GetProductCategory", getproductcategory.NewHandler(productCatReadRepo, redisClient, metrics, ttl))
+	bus.Register("ListProductCategories", listproductcategories.NewHandler(productCatReadRepo))
+
+	// Product queries
+	bus.Register("GetProduct", getproduct.NewHandler(productReadRepo, redisClient, metrics, ttl))
+	bus.Register("ListProducts", listproducts.NewHandler(productReadRepo))
 }
 
 func registerEventHandlers(
@@ -481,6 +527,8 @@ func startServer(
 	apiTokenHandler *httpdelivery.APITokenHandler,
 	clientHandler *httpdelivery.ClientHandler,
 	paymentHandler *httpdelivery.PaymentHandler,
+	productCatHandler *httpdelivery.ProductCategoryHandler,
+	productHandler *httpdelivery.ProductHandler,
 ) {
 	r := chi.NewRouter()
 
@@ -623,6 +671,36 @@ func startServer(
 		r.Group(func(r chi.Router) {
 			r.Use(middleware.RequireSiteRole("admin"))
 			apiTokenHandler.RegisterRoutes(r)
+		})
+
+		// Product Categories
+		r.Route("/api/v1/product-categories", func(r chi.Router) {
+			r.Get("/", productCatHandler.List)
+			r.Get("/{id}", productCatHandler.GetByID)
+			r.Group(func(r chi.Router) {
+				r.Use(middleware.RequireSiteRole("admin", "editor"))
+				r.Post("/", productCatHandler.Create)
+				r.Put("/{id}", productCatHandler.Update)
+			})
+			r.Group(func(r chi.Router) {
+				r.Use(middleware.RequireSiteRole("admin"))
+				r.Delete("/{id}", productCatHandler.Delete)
+			})
+		})
+
+		// Products
+		r.Route("/api/v1/products", func(r chi.Router) {
+			r.Get("/", productHandler.List)
+			r.Get("/{id}", productHandler.GetByID)
+			r.Group(func(r chi.Router) {
+				r.Use(middleware.RequireSiteRole("admin", "editor"))
+				r.Post("/", productHandler.Create)
+				r.Put("/{id}", productHandler.Update)
+			})
+			r.Group(func(r chi.Router) {
+				r.Use(middleware.RequireSiteRole("admin"))
+				r.Delete("/{id}", productHandler.Delete)
+			})
 		})
 	})
 
