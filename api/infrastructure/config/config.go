@@ -23,9 +23,12 @@ type JWTConfig struct {
 }
 
 type AppConfig struct {
-	Name        string `mapstructure:"APP_NAME"`
-	Env         string `mapstructure:"APP_ENV"`
-	CORSOrigins string `mapstructure:"CORS_ALLOWED_ORIGINS"`
+	Name          string `mapstructure:"APP_NAME"`
+	Env           string `mapstructure:"APP_ENV"`
+	CORSOrigins   string `mapstructure:"CORS_ALLOWED_ORIGINS"`
+	UploadDir     string `mapstructure:"UPLOAD_DIR"`
+	UploadBaseURL string `mapstructure:"UPLOAD_BASE_URL"`
+	UploadMaxSize int64  `mapstructure:"UPLOAD_MAX_SIZE"`
 }
 
 type HTTPConfig struct {
@@ -80,14 +83,20 @@ func Load() (*Config, error) {
 	viper.SetDefault("JWT_REFRESH_EXPIRY", "168h")
 	viper.SetDefault("CORS_ALLOWED_ORIGINS", "http://localhost:3000")
 	viper.SetDefault("MAX_BODY_SIZE", 1048576)
+	viper.SetDefault("UPLOAD_DIR", "./uploads")
+	viper.SetDefault("UPLOAD_BASE_URL", "http://localhost:8080")
+	viper.SetDefault("UPLOAD_MAX_SIZE", 10485760) // 10MB
 	viper.SetDefault("OTEL_EXPORTER_OTLP_ENDPOINT", "http://localhost:4318")
 	viper.SetDefault("PROMETHEUS_PORT", "9090")
 
 	cfg := &Config{
 		App: AppConfig{
-			Name:        viper.GetString("APP_NAME"),
-			Env:         viper.GetString("APP_ENV"),
-			CORSOrigins: viper.GetString("CORS_ALLOWED_ORIGINS"),
+			Name:          viper.GetString("APP_NAME"),
+			Env:           viper.GetString("APP_ENV"),
+			CORSOrigins:   viper.GetString("CORS_ALLOWED_ORIGINS"),
+			UploadDir:     viper.GetString("UPLOAD_DIR"),
+			UploadBaseURL: viper.GetString("UPLOAD_BASE_URL"),
+			UploadMaxSize: viper.GetInt64("UPLOAD_MAX_SIZE"),
 		},
 		HTTP: HTTPConfig{
 			Port:         viper.GetString("HTTP_PORT"),

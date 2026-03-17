@@ -21,12 +21,14 @@ import (
 	"github.com/erickmo/vernon-cms/infrastructure/database"
 	"github.com/erickmo/vernon-cms/infrastructure/telemetry"
 	createapitoken "github.com/erickmo/vernon-cms/internal/command/create_api_token"
+	createclient "github.com/erickmo/vernon-cms/internal/command/create_client"
 	createcontent "github.com/erickmo/vernon-cms/internal/command/create_content"
 	createcontentcategory "github.com/erickmo/vernon-cms/internal/command/create_content_category"
 	createpage "github.com/erickmo/vernon-cms/internal/command/create_page"
 	createsite "github.com/erickmo/vernon-cms/internal/command/create_site"
 	createuser "github.com/erickmo/vernon-cms/internal/command/create_user"
 	deleteapitoken "github.com/erickmo/vernon-cms/internal/command/delete_api_token"
+	deleteclient "github.com/erickmo/vernon-cms/internal/command/delete_client"
 	deletecontent "github.com/erickmo/vernon-cms/internal/command/delete_content"
 	deletecontentcategory "github.com/erickmo/vernon-cms/internal/command/delete_content_category"
 	deletemedia "github.com/erickmo/vernon-cms/internal/command/delete_media"
@@ -44,7 +46,10 @@ import (
 	publishcontent "github.com/erickmo/vernon-cms/internal/command/publish_content"
 	"github.com/erickmo/vernon-cms/internal/command/register"
 	toggleapitoken "github.com/erickmo/vernon-cms/internal/command/toggle_api_token"
+	toggleclient "github.com/erickmo/vernon-cms/internal/command/toggle_client"
 	updateapitoken "github.com/erickmo/vernon-cms/internal/command/update_api_token"
+	updateclient "github.com/erickmo/vernon-cms/internal/command/update_client"
+	createpayment "github.com/erickmo/vernon-cms/internal/command/create_payment"
 	updatecontent "github.com/erickmo/vernon-cms/internal/command/update_content"
 	updatecontentcategory "github.com/erickmo/vernon-cms/internal/command/update_content_category"
 	updatedata "github.com/erickmo/vernon-cms/internal/command/update_data"
@@ -57,8 +62,10 @@ import (
 	uploadmedia "github.com/erickmo/vernon-cms/internal/command/upload_media"
 	httpdelivery "github.com/erickmo/vernon-cms/internal/delivery/http"
 	"github.com/erickmo/vernon-cms/internal/eventhandler"
+	getclient "github.com/erickmo/vernon-cms/internal/query/get_client"
 	getdailycontentstats "github.com/erickmo/vernon-cms/internal/query/get_daily_content_stats"
 	getdashboardstats "github.com/erickmo/vernon-cms/internal/query/get_dashboard_stats"
+	getpayment "github.com/erickmo/vernon-cms/internal/query/get_payment"
 	getcontent "github.com/erickmo/vernon-cms/internal/query/get_content"
 	getcontentbyslug "github.com/erickmo/vernon-cms/internal/query/get_content_by_slug"
 	getcontentcategory "github.com/erickmo/vernon-cms/internal/query/get_content_category"
@@ -71,6 +78,8 @@ import (
 	getuser "github.com/erickmo/vernon-cms/internal/query/get_user"
 	listactivitylogs "github.com/erickmo/vernon-cms/internal/query/list_activity_logs"
 	listapitoken "github.com/erickmo/vernon-cms/internal/query/list_api_tokens"
+	listclients "github.com/erickmo/vernon-cms/internal/query/list_clients"
+	listpayments "github.com/erickmo/vernon-cms/internal/query/list_payments"
 	listcontent "github.com/erickmo/vernon-cms/internal/query/list_content"
 	listcontentcategory "github.com/erickmo/vernon-cms/internal/query/list_content_category"
 	listdata "github.com/erickmo/vernon-cms/internal/query/list_data"
@@ -114,6 +123,8 @@ func main() {
 			database.NewSettingsRepository,
 			database.NewMediaRepository,
 			database.NewAPITokenRepository,
+			database.NewClientRepository,
+			database.NewPaymentRepository,
 
 			// Read Repositories (site-scoped wrappers)
 			database.NewPageReadRepository,
@@ -134,6 +145,8 @@ func main() {
 			newMediaHandler,
 			newActivityLogHandler,
 			newAPITokenHandler,
+			newClientHandler,
+			newPaymentHandler,
 
 			// Login handler (special — needs ReadRepository + SiteReadRepo + JWTService)
 			newLoginHandler,
@@ -217,8 +230,16 @@ func newSettingsHandler(cmdBus *commandbus.CommandBus, queryBus *querybus.QueryB
 	return httpdelivery.NewSettingsHandler(cmdBus, queryBus)
 }
 
-func newMediaHandler(cmdBus *commandbus.CommandBus, queryBus *querybus.QueryBus) *httpdelivery.MediaHandler {
-	return httpdelivery.NewMediaHandler(cmdBus, queryBus)
+func newMediaHandler(cmdBus *commandbus.CommandBus, queryBus *querybus.QueryBus, cfg *config.Config) *httpdelivery.MediaHandler {
+	return httpdelivery.NewMediaHandler(cmdBus, queryBus, cfg.App.UploadDir, cfg.App.UploadBaseURL)
+}
+
+func newClientHandler(cmdBus *commandbus.CommandBus, queryBus *querybus.QueryBus) *httpdelivery.ClientHandler {
+	return httpdelivery.NewClientHandler(cmdBus, queryBus)
+}
+
+func newPaymentHandler(cmdBus *commandbus.CommandBus, queryBus *querybus.QueryBus) *httpdelivery.PaymentHandler {
+	return httpdelivery.NewPaymentHandler(cmdBus, queryBus)
 }
 
 func newActivityLogHandler(queryBus *querybus.QueryBus) *httpdelivery.ActivityLogHandler {
@@ -241,6 +262,8 @@ func registerCommandHandlers(
 	settingsRepo *database.SettingsRepository,
 	mediaRepo *database.MediaRepository,
 	apiTokenRepo *database.APITokenRepository,
+	clientRepo *database.ClientRepository,
+	paymentRepo *database.PaymentRepository,
 ) {
 	// Page commands
 	bus.Register("CreatePage", createpage.NewHandler(pageRepo, eb))
@@ -295,6 +318,15 @@ func registerCommandHandlers(
 	bus.Register("UpdateAPIToken", updateapitoken.NewHandler(apiTokenRepo))
 	bus.Register("DeleteAPIToken", deleteapitoken.NewHandler(apiTokenRepo))
 	bus.Register("ToggleAPIToken", toggleapitoken.NewHandler(apiTokenRepo))
+
+	// Client commands
+	bus.Register("CreateClient", createclient.NewHandler(clientRepo))
+	bus.Register("UpdateClient", updateclient.NewHandler(clientRepo))
+	bus.Register("DeleteClient", deleteclient.NewHandler(clientRepo))
+	bus.Register("ToggleClient", toggleclient.NewHandler(clientRepo))
+
+	// Payment commands
+	bus.Register("CreatePayment", createpayment.NewHandler(paymentRepo))
 }
 
 func registerQueryHandlers(
@@ -312,6 +344,8 @@ func registerQueryHandlers(
 	settingsRepo *database.SettingsRepository,
 	mediaRepo *database.MediaRepository,
 	apiTokenRepo *database.APITokenRepository,
+	clientRepo *database.ClientRepository,
+	paymentRepo *database.PaymentRepository,
 ) {
 	ttl := time.Duration(cfg.Redis.TTLSeconds) * time.Second
 
@@ -354,6 +388,14 @@ func registerQueryHandlers(
 
 	// API Token queries
 	bus.Register("ListAPITokens", listapitoken.NewHandler(apiTokenRepo))
+
+	// Client queries
+	bus.Register("ListClients", listclients.NewHandler(clientRepo))
+	bus.Register("GetClient", getclient.NewHandler(clientRepo))
+
+	// Payment queries
+	bus.Register("ListPayments", listpayments.NewHandler(paymentRepo))
+	bus.Register("GetPayment", getpayment.NewHandler(paymentRepo))
 }
 
 func registerEventHandlers(
@@ -437,6 +479,8 @@ func startServer(
 	mediaHandler *httpdelivery.MediaHandler,
 	activityLogHandler *httpdelivery.ActivityLogHandler,
 	apiTokenHandler *httpdelivery.APITokenHandler,
+	clientHandler *httpdelivery.ClientHandler,
+	paymentHandler *httpdelivery.PaymentHandler,
 ) {
 	r := chi.NewRouter()
 
@@ -455,6 +499,10 @@ func startServer(
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{"status":"ok"}`))
 	})
+
+	// Static file server for uploaded media
+	uploadsDir := cfg.App.UploadDir
+	r.Handle("/uploads/*", http.StripPrefix("/uploads", http.FileServer(http.Dir(uploadsDir))))
 
 	// Auth routes (public — no auth middleware, but include TenantResolution for login)
 	r.Group(func(r chi.Router) {
@@ -606,6 +654,12 @@ func startServer(
 				r.Delete("/{userID}", siteHandler.RemoveMember)
 			})
 		})
+
+		// Clients (admin panel)
+		clientHandler.RegisterRoutes(r)
+
+		// Payments (admin panel)
+		paymentHandler.RegisterRoutes(r)
 	})
 
 	server := &http.Server{

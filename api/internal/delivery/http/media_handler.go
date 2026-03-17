@@ -2,8 +2,12 @@ package http
 
 import (
 	"encoding/json"
+	"io"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-playground/validator/v10"
@@ -21,16 +25,20 @@ import (
 )
 
 type MediaHandler struct {
-	cmdBus   *commandbus.CommandBus
-	queryBus *querybus.QueryBus
-	validate *validator.Validate
+	cmdBus        *commandbus.CommandBus
+	queryBus      *querybus.QueryBus
+	validate      *validator.Validate
+	uploadDir     string
+	uploadBaseURL string
 }
 
-func NewMediaHandler(cmdBus *commandbus.CommandBus, queryBus *querybus.QueryBus) *MediaHandler {
+func NewMediaHandler(cmdBus *commandbus.CommandBus, queryBus *querybus.QueryBus, uploadDir, uploadBaseURL string) *MediaHandler {
 	return &MediaHandler{
-		cmdBus:   cmdBus,
-		queryBus: queryBus,
-		validate: validator.New(),
+		cmdBus:        cmdBus,
+		queryBus:      queryBus,
+		validate:      validator.New(),
+		uploadDir:     uploadDir,
+		uploadBaseURL: uploadBaseURL,
 	}
 }
 
@@ -104,7 +112,17 @@ func (h *MediaHandler) GetByID(w http.ResponseWriter, r *http.Request) {
 	writeFlatJSON(w, http.StatusOK, result)
 }
 
+// Upload handles both multipart/form-data (direct file) and application/json (URL-based).
 func (h *MediaHandler) Upload(w http.ResponseWriter, r *http.Request) {
+	contentType := r.Header.Get("Content-Type")
+	if strings.Contains(contentType, "multipart/form-data") {
+		h.uploadMultipart(w, r)
+		return
+	}
+	h.uploadJSON(w, r)
+}
+
+func (h *MediaHandler) uploadJSON(w http.ResponseWriter, r *http.Request) {
 	var cmd uploadmedia.Command
 	if err := json.NewDecoder(r.Body).Decode(&cmd); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -114,6 +132,87 @@ func (h *MediaHandler) Upload(w http.ResponseWriter, r *http.Request) {
 	if err := h.validate.Struct(cmd); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
+	}
+
+	result := &uploadmedia.Result{}
+	ctx := uploadmedia.WithResult(r.Context(), result)
+
+	if err := h.cmdBus.Dispatch(ctx, cmd); err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	if result.File == nil {
+		writeError(w, http.StatusInternalServerError, "failed to upload media")
+		return
+	}
+
+	writeFlatJSON(w, http.StatusCreated, result.File)
+}
+
+func (h *MediaHandler) uploadMultipart(w http.ResponseWriter, r *http.Request) {
+	// Parse multipart form (max 50MB in memory; rest on disk)
+	if err := r.ParseMultipartForm(50 << 20); err != nil {
+		writeError(w, http.StatusBadRequest, "failed to parse multipart form")
+		return
+	}
+
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "file field is required")
+		return
+	}
+	defer file.Close()
+
+	// Create unique subdirectory to avoid filename collisions
+	dirID := uuid.New().String()
+	uploadDir := filepath.Join(h.uploadDir, dirID)
+	if err := os.MkdirAll(uploadDir, 0755); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create upload directory")
+		return
+	}
+
+	// Sanitize filename
+	fileName := filepath.Base(header.Filename)
+	dstPath := filepath.Join(uploadDir, fileName)
+
+	dst, err := os.Create(dstPath)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to save file")
+		return
+	}
+	defer dst.Close()
+
+	fileSize, err := io.Copy(dst, file)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to write file")
+		return
+	}
+
+	// Detect MIME type
+	mimeType := header.Header.Get("Content-Type")
+	if mimeType == "" {
+		mimeType = "application/octet-stream"
+	}
+
+	// Build public URL
+	fileURL := h.uploadBaseURL + "/uploads/" + dirID + "/" + fileName
+
+	// Optional fields from form values
+	cmd := uploadmedia.Command{
+		FileName: fileName,
+		FileURL:  fileURL,
+		MimeType: mimeType,
+		FileSize: fileSize,
+	}
+	if v := r.FormValue("alt"); v != "" {
+		cmd.Alt = &v
+	}
+	if v := r.FormValue("caption"); v != "" {
+		cmd.Caption = &v
+	}
+	if v := r.FormValue("folder"); v != "" {
+		cmd.Folder = &v
 	}
 
 	result := &uploadmedia.Result{}
